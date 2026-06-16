@@ -583,7 +583,7 @@ const I18N = {
     anon_submit_success: '匿名提交成功！',
     pw_changed: '密码修改成功',
     pw_mismatch: '两次密码不一致',
-    pw_min_length: '密码至少6位',
+    pw_policy: '密码至少8位，须包含字母和数字',
     pw_wrong: '原密码错误',
     unlocked: '已开放修改权限',
     unlocked_confirm: '确定开放此员工的修改权限？',
@@ -798,7 +798,7 @@ const I18N = {
     anon_submit_success: 'Anonymous submission successful!',
     pw_changed: 'Password changed successfully',
     pw_mismatch: 'Passwords do not match',
-    pw_min_length: 'Password must be at least 6 characters',
+    pw_policy: 'Min 8 characters with letters and digits',
     pw_wrong: 'Current password is incorrect',
     unlocked: 'Edit permission granted',
     unlocked_confirm: 'Grant edit permission to this employee?',
@@ -941,6 +941,7 @@ function renderCurrentAdminTab(tabId) {
 // ============ GLOBALS ============
 const API = '';
 let currentUser = null;
+let authToken = '';  // HMAC-signed token, kept separate from numeric user.id
 let userList = [];
 let managerList = [];
 let dim1Data = [], dim2Data = [], dim3Data = [];
@@ -975,7 +976,7 @@ function showToast(msg, type='info') {
 // ============ HTTP HELPERS ============
 async function api(path, options={}) {
   const headers = {'Content-Type':'application/json'};
-  if (currentUser) headers['Authorization'] = `Bearer ${currentUser.id}`;
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   const res = await fetch(API + path, { headers, ...options });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '请求失败');
@@ -997,7 +998,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     currentUser = data.user;
-    currentUser.id = data.token;
+    authToken = data.token;  // HMAC-signed token for API auth
     document.cookie = `token=${data.token};path=/;max-age=86400`;
     // Load language preference
     const savedLang = localStorage.getItem('petra_360_lang') || data.user.lang || 'zh';
@@ -1576,7 +1577,7 @@ async function unlockUser(uid) {
 
 async function resetUserPassword(uid) {
   const pw = prompt(t('pw_reset_prompt'));
-  if (!pw || pw.length < 6) return;
+  if (!pw || pw.length < 8) return;
   try {
     await api(`/api/admin/users/${uid}`, {method:'PUT', body: JSON.stringify({password: pw})});
     showToast(t('pw_reset'), 'success');
@@ -1681,14 +1682,14 @@ async function saveSubAdmin() {
   const alertEl = document.getElementById('sub-alert');
 
   if (!enName) { alertEl.innerHTML = '<div class="alert alert-error">' + t('login_error_empty') + '</div>'; return; }
-  if (!editingSubAdminId && (!password || password.length < 6)) {
-    alertEl.innerHTML = '<div class="alert alert-error">' + t('pw_min_length') + '</div>'; return;
+  if (!editingSubAdminId && (!password || password.length < 8)) {
+    alertEl.innerHTML = '<div class="alert alert-error">' + t('pw_policy') + '</div>'; return;
   }
 
   try {
     if (editingSubAdminId) {
       const body = { permissions: perms };
-      if (password && password.length >= 6) body.password = password;
+      if (password && password.length >= 8) body.password = password;
       await api(`/api/admin/sub-admins/${editingSubAdminId}`, {method:'PUT', body: JSON.stringify(body)});
       showToast(t('sub_admin_updated'), 'success');
     } else {
@@ -1735,7 +1736,7 @@ async function changePassword() {
   const confirm = document.getElementById('pw-confirm').value;
   const alert = document.getElementById('pw-alert');
   if (newPw !== confirm) { alert.innerHTML = `<div class="alert alert-error">${t('pw_mismatch')}</div>`; return; }
-  if (newPw.length < 6) { alert.innerHTML = `<div class="alert alert-error">${t('pw_min_length')}</div>`; return; }
+  if (newPw.length < 8 || !/[A-Za-z]/.test(newPw) || !/[0-9]/.test(newPw)) { alert.innerHTML = `<div class="alert alert-error">${t('pw_policy')}</div>`; return; }
   try {
     await api('/api/change_password', {method:'POST', body: JSON.stringify({old_password:oldPw, new_password:newPw})});
     showToast(t('pw_changed'), 'success');
@@ -1762,13 +1763,13 @@ function esc(s) {
   if (savedLang) currentLang = savedLang;
   applyLanguage();
   if (token) {
-    const uid = token.split('=')[1];
-    fetch(API + '/api/me', { headers: {'Authorization': `Bearer ${uid}`} })
+    const tokenValue = token.split('=')[1];
+    fetch(API + '/api/me', { headers: {'Authorization': `Bearer ${tokenValue}`} })
       .then(r => r.json())
       .then(data => {
         if (data.id) {
           currentUser = data;
-          currentUser.id = uid;
+          authToken = tokenValue;
           if (data.lang) currentLang = data.lang;
           initApp();
         }
