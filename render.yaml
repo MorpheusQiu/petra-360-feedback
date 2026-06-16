@@ -20,12 +20,6 @@ services:
       - key: PYTHON_VERSION
         value: "3.13.12"
 
-    # 持久化磁盘: SQLite 数据库存储
-    disk:
-      name: sqlite-data
-      mountPath: /var/data
-      sizeGB: 1
-
     # 健康检查
     healthCheckPath: /api/health
 
