@@ -1,0 +1,5 @@
+# 360反馈系统 — 忽略文件
+feedback.db
+__pycache__/
+*.pyc
+.env
