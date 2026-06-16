@@ -1,0 +1,37 @@
+# Fly.io 部署配置 (备选方案)
+# 文档: https://fly.io/docs/reference/configuration/
+# 部署: fly deploy
+# 创建卷: fly volumes create sqlite_data --size 1 --region hkg
+
+app = "petra-360-feedback"
+primary_region = "hkg"         # 中国香港节点，国内延迟 <50ms
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  PORT = "8080"
+  DB_PATH = "/data/feedback.db"
+
+[mounts]
+  source = "sqlite_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+    handlers = ["http"]
+    force_https = true
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

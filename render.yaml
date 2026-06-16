@@ -1,0 +1,33 @@
+# Render 部署配置
+# 文档: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: petra-360-feedback
+    env: python
+    region: singapore          # 新加坡，国内访问延迟 <100ms
+    plan: free                 # 免费层: 750h/月, 512MB RAM
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_prod.py
+
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: SECRET_KEY
+        generateValue: true    # Render 自动生成 64 位随机密钥
+      - key: PYTHON_VERSION
+        value: "3.13.12"
+
+    # 持久化磁盘: SQLite 数据库存储
+    disk:
+      name: sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
+
+    # 健康检查
+    healthCheckPath: /api/health
+
+    # 自动部署: main 分支推送即触发
+    autoDeploy: true

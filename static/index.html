@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Petra 360° Feedback</title>
+<style>
+:root {
+  --primary: #1F4E79; --primary-light: #2E75B6; --primary-lighter: #D6E4F0; --primary-bg: #E9F0F8;
+  --success: #2D8A4E; --warning: #D4A017; --danger: #C0392B; --gray: #666;
+  --border: #D0D5DD; --bg: #F5F7FA; --white: #FFF; --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08); --shadow-lg: 0 4px 16px rgba(0,0,0,0.12);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI', sans-serif; background: var(--bg); color: #333; line-height: 1.6; min-height: 100vh; }
+
+/* ====== LOGIN ====== */
+.login-container { display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; }
+.login-card { background:var(--white); border-radius:12px; box-shadow:var(--shadow-lg); padding:40px; width:100%; max-width:440px; }
+.login-logo { text-align:center; margin-bottom:28px; }
+.login-logo h1 { color:var(--primary); font-size:22px; margin-bottom:4px; }
+.login-logo .sub { color:var(--gray); font-size:13px; }
+.login-logo .icon { font-size:40px; margin-bottom:8px; }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px; }
+.form-group input, .form-group select, .form-group textarea { width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; transition:border .2s; font-family:inherit; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline:none; border-color:var(--primary-light); box-shadow:0 0 0 3px rgba(46,117,182,0.12); }
+.form-group textarea { resize:vertical; min-height:80px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 22px; border:none; border-radius:var(--radius); font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; font-family:inherit; }
+.btn-primary { background:var(--primary); color:white; }
+.btn-primary:hover { background:var(--primary-light); }
+.btn-outline { background:white; color:var(--primary); border:1px solid var(--primary); }
+.btn-outline:hover { background:var(--primary-bg); }
+.btn-success { background:var(--success); color:white; }
+.btn-danger { background:var(--danger); color:white; }
+.btn-sm { padding:6px 14px; font-size:12px; }
+.btn-block { width:100%; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+.alert { padding:12px 16px; border-radius:var(--radius); font-size:13px; margin-bottom:16px; }
+.alert-error { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+.alert-success { background:#DCFCE7; color:#166534; border:1px solid #BBF7D0; }
+.alert-info { background:var(--primary-bg); color:var(--primary); border:1px solid var(--primary-lighter); }
+
+/* ====== HEADER ====== */
+.app-header { background:var(--white); border-bottom:1px solid var(--border); padding:12px 28px; display:flex; align-items:center; justify-content:space-between; box-shadow:var(--shadow); position:sticky; top:0; z-index:100; gap:12px; flex-wrap:wrap; }
+.app-header .brand { display:flex; align-items:center; gap:10px; }
+.app-header .brand h2 { font-size:18px; color:var(--primary); }
+.app-header .brand span { font-size:12px; color:var(--gray); }
+.app-header .user-info { display:flex; align-items:center; gap:10px; }
+.app-header .user-info .user-name { font-size:14px; font-weight:600; }
+.app-header .user-info .user-role { font-size:11px; color:var(--gray); background:var(--bg); padding:3px 10px; border-radius:20px; }
+.app-header .save-indicator { font-size:12px; color:var(--success); display:flex; align-items:center; gap:4px; }
+.lang-toggle { display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+.lang-toggle button { padding:5px 10px; font-size:12px; border:none; background:white; cursor:pointer; font-weight:500; color:var(--gray); }
+.lang-toggle button.active { background:var(--primary); color:white; }
+
+/* ====== ROLE SWITCH for admins ====== */
+.role-switch { display:flex; background:var(--bg); padding:4px; border-radius:var(--radius); gap:2px; }
+.role-switch button { padding:6px 14px; font-size:12px; border:none; background:transparent; cursor:pointer; border-radius:6px; font-weight:500; color:var(--gray); font-family:inherit; }
+.role-switch button.active { background:var(--white); color:var(--primary); font-weight:700; box-shadow:var(--shadow); }
+
+/* ====== NAV ====== */
+.nav-tabs { display:flex; background:var(--white); border-bottom:2px solid var(--border); padding:0 24px; overflow-x:auto; }
+.nav-tab { padding:14px 20px; font-size:14px; color:var(--gray); cursor:pointer; border-bottom:3px solid transparent; white-space:nowrap; transition:all .2s; background:none; border-top:none; border-left:none; border-right:none; font-family:inherit; }
+.nav-tab:hover { color:var(--primary); }
+.nav-tab.active { color:var(--primary); font-weight:700; border-bottom-color:var(--primary); }
+.nav-tab .badge { display:inline-block; background:var(--success); color:white; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; }
+.nav-tab .badge.warn { background:var(--warning); }
+
+/* ====== MAIN CONTENT ====== */
+.main-content { max-width:1200px; margin:0 auto; padding:24px; }
+.page { display:none; }
+.page.active { display:block; }
+
+/* ====== SURVEY ====== */
+.section-card { background:var(--white); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:20px; overflow:hidden; }
+.section-header { padding:16px 20px; background:var(--primary-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.section-header h3 { font-size:16px; color:var(--primary); }
+.section-body { padding:20px; }
+.section-footer { padding:14px 20px; background:#FAFAFA; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:10px; }
+.info-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.info-row .form-group { flex:1; min-width:180px; margin-bottom:0; }
+
+/* Score Table */
+.score-table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:16px; }
+.score-table th { background:var(--primary); color:white; padding:10px 8px; font-weight:600; text-align:center; font-size:12px; }
+.score-table th.dim-header { background:var(--primary-light); }
+.score-table td { padding:8px; border:1px solid var(--border); }
+.score-table td input[type="text"] { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font-size:13px; }
+.score-table td textarea { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font-size:12px; min-height:40px; resize:vertical; }
+.score-table tr:hover td { background:#FAFBFC; }
+.score-group { display:flex; gap:4px; justify-content:center; flex-wrap:wrap; }
+.score-btn { width:36px; height:36px; border:2px solid var(--border); border-radius:6px; background:white; cursor:pointer; font-size:14px; font-weight:600; transition:all .15s; display:flex; align-items:center; justify-content:center; color:#666; }
+.score-btn:hover { border-color:var(--primary-light); background:var(--primary-bg); }
+.score-btn.selected { background:var(--primary); color:white; border-color:var(--primary); }
+.score-btn.na { width:44px; font-size:11px; font-weight:500; }
+.score-btn.na.selected { background:var(--gray); border-color:var(--gray); }
+.score-cell { min-width:200px; }
+.add-btn { display:flex; align-items:center; gap:6px; color:var(--primary-light); cursor:pointer; font-size:13px; font-weight:600; padding:8px 12px; border:1px dashed var(--primary-lighter); border-radius:var(--radius); background:var(--primary-bg); transition:all .2s; }
+.add-btn:hover { background:var(--primary-lighter); }
+
+/* ====== ADMIN ====== */
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px; }
+.stat-card { background:var(--white); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); text-align:center; }
+.stat-card .stat-value { font-size:32px; font-weight:800; color:var(--primary); }
+.stat-card .stat-label { font-size:12px; color:var(--gray); margin-top:4px; }
+.stat-card .stat-bar { height:6px; background:var(--primary-lighter); border-radius:3px; margin-top:8px; overflow:hidden; }
+.stat-card .stat-bar-fill { height:100%; background:var(--primary); border-radius:3px; transition:width .5s; }
+.stat-card.success .stat-value { color:var(--success); }
+.stat-card.success .stat-bar-fill { background:var(--success); }
+.stat-card.warning .stat-value { color:var(--warning); }
+.admin-table-wrap { overflow-x:auto; }
+.admin-table { width:100%; border-collapse:collapse; font-size:13px; }
+.admin-table th { background:var(--primary); color:white; padding:8px 10px; font-size:12px; text-align:left; position:sticky; top:0; }
+.admin-table td { padding:6px 10px; border-bottom:1px solid var(--border); }
+.admin-table tr:hover td { background:#FAFBFC; }
+.admin-table .status-tag { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; }
+.status-tag.done { background:#DCFCE7; color:#166534; }
+.status-tag.pending { background:#FEF3C7; color:#92400E; }
+.status-tag.none { background:#F1F5F9; color:#64748B; }
+.filter-bar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+.filter-bar select, .filter-bar input { padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; }
+
+/* Sub-admin permissions */
+.perm-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px; margin-top:8px; }
+.perm-item { display:flex; align-items:center; gap:8px; font-size:13px; padding:8px; border:1px solid var(--border); border-radius:var(--radius); }
+.perm-item label { cursor:pointer; flex:1; }
+.perm-item input[type="checkbox"] { width:16px; height:16px; cursor:pointer; }
+
+/* ====== MODAL ====== */
+.modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:200; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--white); border-radius:12px; padding:24px; width:90%; max-width:520px; max-height:90vh; overflow-y:auto; box-shadow:var(--shadow-lg); }
+.modal h3 { margin-bottom:16px; color:var(--primary); }
+.modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+
+/* ====== TOAST ====== */
+.toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:var(--radius); color:white; font-size:13px; z-index:300; box-shadow:var(--shadow-lg); transform:translateX(120%); transition:transform .3s; }
+.toast.show { transform:translateX(0); }
+.toast.success { background:var(--success); }
+.toast.error { background:var(--danger); }
+.toast.info { background:var(--primary); }
+.empty-state { text-align:center; padding:40px; color:var(--gray); }
+.empty-state .icon { font-size:40px; margin-bottom:12px; opacity:0.5; }
+.empty-state p { font-size:14px; }
+.dim-desc { background:var(--primary-bg); padding:12px 16px; border-radius:6px; font-size:13px; color:var(--primary); margin-bottom:16px; border-left:3px solid var(--primary); }
+.dim-instructions { font-size:13px; color:var(--gray); margin-bottom:14px; }
+.warning-banner { background:#FFF3CD; border:1px solid #FFEEBA; padding:12px 16px; border-radius:var(--radius); font-size:13px; color:#856404; margin-bottom:16px; }
+.warning-banner strong { color:#664D03; }
+
+/* Sub-admin permission checkboxes inline */
+.checkbox-group { display:flex; flex-wrap:wrap; gap:12px; }
+.checkbox-group label { display:flex; align-items:center; gap:4px; font-size:13px; font-weight:normal; cursor:pointer; }
+.checkbox-group input[type="checkbox"] { width:auto; margin-right:2px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== LOGIN PAGE ==================== -->
+<div id="login-page" class="login-container">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="icon">🏢</div>
+      <h1 data-i18n="login_title">Petra品牌中国区</h1>
+      <div class="sub" data-i18n="login_subtitle">360度反馈系统 · 2026 H1</div>
+    </div>
+    <div id="login-alert"></div>
+    <form id="login-form">
+      <div class="form-group">
+        <label data-i18n="login_en_name">英文名 / English Name</label>
+        <input type="text" id="login-ename" data-i18n-placeholder="login_en_placeholder" placeholder="请输入您的英文名" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label data-i18n="login_password">密码 / Password</label>
+        <input type="password" id="login-password" data-i18n-placeholder="login_pw_placeholder" placeholder="请输入登录密码" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" data-i18n="login_button">登 录</button>
+    </form>
+  </div>
+</div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div id="app" style="display:none;">
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <h2>📋 Petra 360° <span data-i18n="app_title">反馈系统</span></h2>
+      <span id="cycle-label">2026 H1</span>
+    </div>
+    <div class="user-info">
+      <span id="save-status" class="save-indicator" style="display:none;">💾 <span data-i18n="autosaved">已自动保存</span></span>
+      <!-- Language Toggle -->
+      <div class="lang-toggle">
+        <button id="lang-zh" onclick="switchLang('zh')">中文</button>
+        <button id="lang-en" onclick="switchLang('en')">EN</button>
+      </div>
+      <!-- Role Switch for admins -->
+      <div class="role-switch" id="role-switch" style="display:none;">
+        <button id="role-feedback" class="active" onclick="switchRole('feedback')"><span data-i18n="role_feedback">我的反馈</span></button>
+        <button id="role-admin" onclick="switchRole('admin')"><span data-i18n="role_admin_panel">管理后台</span></button>
+      </div>
+      <span class="user-name" id="header-name"></span>
+      <span class="user-role" id="header-role"></span>
+      <button class="btn btn-outline btn-sm" id="btn-change-pw"><span data-i18n="change_password">修改密码</span></button>
+      <button class="btn btn-sm" style="background:#eee;" id="btn-logout"><span data-i18n="logout">退出</span></button>
+    </div>
+  </header>
+
+  <!-- ===== EMPLOYEE NAV ===== -->
+  <nav id="emp-nav" class="nav-tabs" style="display:none;">
+    <button class="nav-tab active" data-tab="dim1"><span data-i18n="dim1_tab">维度一：员工互评</span> <span class="badge" id="badge-dim1"></span></button>
+    <button class="nav-tab" data-tab="dim2"><span data-i18n="dim2_tab">维度二：对上级反馈</span> <span class="badge" id="badge-dim2"></span></button>
+    <button class="nav-tab" data-tab="dim3"><span data-i18n="dim3_tab">维度三：上级对下级</span> <span class="badge" id="badge-dim3"></span></button>
+    <button class="nav-tab" data-tab="dim4"><span data-i18n="dim4_tab">维度四：匿名领导力</span> <span class="badge" id="badge-dim4"></span></button>
+  </nav>
+
+  <!-- ===== ADMIN NAV ===== -->
+  <nav id="admin-nav" class="nav-tabs" style="display:none;">
+    <button class="nav-tab active" data-tab="admin-dashboard">📊 <span data-i18n="admin_dashboard">仪表盘</span></button>
+    <button class="nav-tab" data-tab="admin-dim1"><span data-i18n="admin_dim1">维度一：员工互评</span></button>
+    <button class="nav-tab" data-tab="admin-dim2"><span data-i18n="admin_dim2">维度二：对上级反馈</span></button>
+    <button class="nav-tab" data-tab="admin-dim3"><span data-i18n="admin_dim3">维度三：上级对下级</span></button>
+    <button class="nav-tab" data-tab="admin-dim4"><span data-i18n="admin_dim4">维度四：匿名领导力</span></button>
+    <button class="nav-tab" data-tab="admin-users">👥 <span data-i18n="admin_users">人员管理</span></button>
+    <button class="nav-tab" data-tab="admin-settings">⚙️ <span data-i18n="admin_settings">系统设置</span></button>
+  </nav>
+
+  <div class="main-content">
+    <!-- ========== EMPLOYEE: DIM1 ========== -->
+    <div id="page-dim1" class="page">
+      <div class="dim-desc" data-i18n="dim1_desc"><strong>维度一：员工互评（同级反馈）</strong> — 请基于日常工作实际协作体验，对每一位有协作关系的同级同事进行评分。如无实际协作经验，可在对应维度选择"N/A"。</div>
+      <div class="dim-instructions" data-i18n="dim1_rubric">【评分标准】5=卓越(远超预期，为团队树立标杆) | 4=优秀(持续超出岗位要求) | 3=良好(稳定达到预期) | 2=需改进(部分不达标) | 1=不达标(严重影响协作) | N/A=不了解/不适用</div>
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="basic_info">基本信息</h3></div>
+        <div class="section-body">
+          <div class="info-row">
+            <div class="form-group"><label data-i18n="evaluator">填写人</label><input type="text" id="dim1-evaluator" readonly></div>
+            <div class="form-group"><label data-i18n="department">部门</label><input type="text" id="dim1-dept" readonly></div>
+            <div class="form-group"><label data-i18n="date">填写日期</label><input type="text" id="dim1-date" readonly></div>
+          </div>
+        </div>
+      </div>
+      <div id="dim1-items"></div>
+      <button class="add-btn" onclick="addDim1Item()">+ <span data-i18n="add_target">添加评价对象</span></button>
+      <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-outline" onclick="saveDim1(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" onclick="saveDim1(true)">✅ <span data-i18n="submit">提交</span></button>
+      </div>
+    </div>
+
+    <!-- ========== EMPLOYEE: DIM2 ========== -->
+    <div id="page-dim2" class="page">
+      <div class="dim-desc" data-i18n="dim2_desc"><strong>维度二：员工对直属上级的反馈</strong> — 请基于与直属上级的日常工作互动，客观评价其管理能力与领导风格。反馈结果仅HR及直属上级的上级可见。</div>
+      <div class="dim-instructions" data-i18n="dim_rubric_short">【评分标准】5=卓越 | 4=优秀 | 3=良好 | 2=需改进 | 1=不达标 | N/A=不了解/不适用</div>
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="basic_info">基本信息</h3></div>
+        <div class="section-body">
+          <div class="info-row">
+            <div class="form-group"><label data-i18n="evaluator">填写人</label><input type="text" id="dim2-evaluator" readonly></div>
+            <div class="form-group"><label data-i18n="department">部门</label><input type="text" id="dim2-dept" readonly></div>
+            <div class="form-group"><label data-i18n="manager">直属上级</label><input type="text" id="dim2-manager" readonly></div>
+          </div>
+        </div>
+      </div>
+      <div id="dim2-items"></div>
+      <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-outline" onclick="saveDim2(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" onclick="saveDim2(true)">✅ <span data-i18n="submit">提交</span></button>
+      </div>
+    </div>
+
+    <!-- ========== EMPLOYEE: DIM3 ========== -->
+    <div id="page-dim3" class="page">
+      <div class="dim-desc" data-i18n="dim3_desc"><strong>维度三：直属上级对员工的反馈</strong> — 请基于日常工作观察与绩效表现，对每一位直属下级进行客观评价。此反馈将用于Q2绩效面谈。</div>
+      <div class="dim-instructions" data-i18n="dim3_rubric">【评分标准】5=卓越(远超同级标杆) | 4=优秀(持续超出预期) | 3=良好(稳定达标) | 2=需改进(部分不达标) | 1=不达标 | N/A=不了解</div>
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="basic_info">基本信息</h3></div>
+        <div class="section-body">
+          <div class="info-row">
+            <div class="form-group"><label data-i18n="manager_name">上级姓名</label><input type="text" id="dim3-evaluator" readonly></div>
+            <div class="form-group"><label data-i18n="department">部门</label><input type="text" id="dim3-dept" readonly></div>
+            <div class="form-group"><label data-i18n="date">填写日期</label><input type="text" id="dim3-date" readonly></div>
+          </div>
+        </div>
+      </div>
+      <div id="dim3-items"></div>
+      <button class="add-btn" onclick="addDim3Item()">+ <span data-i18n="add_subordinate">添加下属评价</span></button>
+      <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-outline" onclick="saveDim3(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" onclick="saveDim3(true)">✅ <span data-i18n="submit">提交</span></button>
+      </div>
+    </div>
+
+    <!-- ========== EMPLOYEE: DIM4 ========== -->
+    <div id="page-dim4" class="page">
+      <div class="warning-banner" data-i18n="dim4_warning">⚠️ <strong>重要提示：本维度为完全匿名反馈。</strong>您的反馈将以汇总形式提交管理层，不含任何身份识别信息。请放心如实作答。</div>
+      <div class="dim-desc" data-i18n="dim4_desc"><strong>维度四：匿名领导力反馈</strong> — 对管理层进行领导力维度的匿名评价。评分标准：5=卓越(全公司标杆) | 4=优秀 | 3=良好 | 2=需改进 | 1=需大幅改善 | N/A=不了解</div>
+      <div id="dim4-items"></div>
+      <button class="add-btn" onclick="addDim4Item()">+ <span data-i18n="add_target">添加评价对象</span></button>
+      <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-outline" onclick="saveDim4(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" onclick="saveDim4(true)">✅ <span data-i18n="anon_submit">匿名提交</span></button>
+      </div>
+    </div>
+
+    <!-- ========== ADMIN DASHBOARD ========== -->
+    <div id="page-admin-dashboard" class="page">
+      <h3 style="margin-bottom:20px;">📊 <span data-i18n="submit_stats">反馈提交统计</span></h3>
+      <div class="stats-grid" id="admin-stats"></div>
+      <div class="section-card" style="margin-top:20px;">
+        <div class="section-header"><h3 data-i18n="dept_completion">部门完成情况</h3></div>
+        <div class="section-body" id="admin-dept-stats"></div>
+      </div>
+    </div>
+
+    <!-- ========== ADMIN SUBMISSION VIEWS ========== -->
+    <div id="page-admin-dim1" class="page admin-data-page">
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="dim1_records">维度一：员工互评 — 提交记录</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-success" onclick="exportData('dim1','xlsx')">📥 <span data-i18n="export_xlsx">导出Excel</span></button>
+            <button class="btn btn-sm btn-outline" onclick="exportData('dim1','csv')"><span data-i18n="export_csv">导出CSV</span></button>
+          </div>
+        </div>
+        <div class="section-body"><div class="admin-table-wrap"><table class="admin-table" id="admin-table-dim1"></table></div></div>
+      </div>
+    </div>
+    <div id="page-admin-dim2" class="page admin-data-page">
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="dim2_records">维度二：对上级反馈 — 提交记录</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-success" onclick="exportData('dim2','xlsx')">📥 <span data-i18n="export_xlsx">导出Excel</span></button>
+            <button class="btn btn-sm btn-outline" onclick="exportData('dim2','csv')"><span data-i18n="export_csv">导出CSV</span></button>
+          </div>
+        </div>
+        <div class="section-body"><div class="admin-table-wrap"><table class="admin-table" id="admin-table-dim2"></table></div></div>
+      </div>
+    </div>
+    <div id="page-admin-dim3" class="page admin-data-page">
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="dim3_records">维度三：上级对下级 — 提交记录</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-success" onclick="exportData('dim3','xlsx')">📥 <span data-i18n="export_xlsx">导出Excel</span></button>
+            <button class="btn btn-sm btn-outline" onclick="exportData('dim3','csv')"><span data-i18n="export_csv">导出CSV</span></button>
+          </div>
+        </div>
+        <div class="section-body"><div class="admin-table-wrap"><table class="admin-table" id="admin-table-dim3"></table></div></div>
+      </div>
+    </div>
+    <div id="page-admin-dim4" class="page admin-data-page">
+      <div class="section-card">
+        <div class="section-header"><h3 data-i18n="dim4_records">维度四：匿名领导力反馈 — 提交记录</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-success" onclick="exportData('dim4','xlsx')">📥 <span data-i18n="export_xlsx">导出Excel</span></button>
+            <button class="btn btn-sm btn-outline" onclick="exportData('dim4','csv')"><span data-i18n="export_csv">导出CSV</span></button>
+          </div>
+        </div>
+        <div class="section-body"><div class="admin-table-wrap"><table class="admin-table" id="admin-table-dim4"></table></div></div>
+      </div>
+    </div>
+
+    <!-- ========== ADMIN USERS ========== -->
+    <div id="page-admin-users" class="page">
+      <div class="section-card">
+        <div class="section-header"><h3>👥 <span data-i18n="personnel_mgmt">人员管理</span></h3></div>
+        <div class="section-body">
+          <div class="filter-bar">
+            <select id="admin-user-filter-dept"><option value="" data-i18n="all_depts">全部部门</option></select>
+            <button class="btn btn-sm btn-outline" onclick="loadAdminUsers()"><span data-i18n="refresh">刷新</span></button>
+          </div>
+          <div class="admin-table-wrap"><table class="admin-table" id="admin-users-table"></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== ADMIN SETTINGS ========== -->
+    <div id="page-admin-settings" class="page">
+      <div class="section-card">
+        <div class="section-header"><h3>⚙️ <span data-i18n="sys_settings">系统设置</span></h3></div>
+        <div class="section-body">
+          <div class="form-group">
+            <label><input type="checkbox" id="setting-submission-open" onchange="updateSetting('submission_open', this.checked?'1':'0')"> <span data-i18n="open_submit">开放提交</span></label>
+            <small style="color:var(--gray);display:block;margin-top:4px;" data-i18n="open_submit_hint">取消勾选后员工将无法提交新评价</small>
+          </div>
+          <div class="form-group">
+            <label data-i18n="cycle_label">反馈周期名称</label>
+            <input type="text" id="setting-cycle-name" onchange="updateSetting('cycle_name', this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-admins (main admin only) -->
+      <div class="section-card" id="sub-admin-section" style="margin-top:20px; display:none;">
+        <div class="section-header"><h3>👑 <span data-i18n="sub_admin_mgmt">子管理员管理</span> <small style="font-weight:normal;font-size:11px;color:var(--gray);">(<span data-i18n="sub_admin_max">最多3名</span>)</small></h3>
+          <button class="btn btn-sm btn-primary" onclick="showSubAdminModal()">+ <span data-i18n="add_sub_admin">添加子管理员</span></button>
+        </div>
+        <div class="section-body">
+          <div id="sub-admin-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODALS ==================== -->
+<div class="modal-overlay" id="modal-password">
+  <div class="modal">
+    <h3 data-i18n="change_password">修改密码</h3>
+    <div id="pw-alert"></div>
+    <div class="form-group"><label data-i18n="old_password">原密码</label><input type="password" id="pw-old"></div>
+    <div class="form-group"><label data-i18n="new_password">新密码（至少6位）</label><input type="password" id="pw-new"></div>
+    <div class="form-group"><label data-i18n="confirm_password">确认新密码</label><input type="password" id="pw-confirm"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-password')"><span data-i18n="cancel">取消</span></button>
+      <button class="btn btn-primary" onclick="changePassword()"><span data-i18n="confirm">确认修改</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Sub-admin create/edit modal -->
+<div class="modal-overlay" id="modal-sub-admin">
+  <div class="modal">
+    <h3 id="sub-admin-modal-title" data-i18n="add_sub_admin">添加子管理员</h3>
+    <div id="sub-alert"></div>
+    <div class="form-group"><label data-i18n="en_name_label">英文名</label><input type="text" id="sub-en-name" placeholder="如 Assistant1"></div>
+    <div class="form-group"><label data-i18n="ch_name_label">中文名</label><input type="text" id="sub-ch-name" placeholder="如 张助理"></div>
+    <div class="form-group"><label data-i18n="password_label">密码（至少6位）</label><input type="password" id="sub-password"></div>
+    <div class="form-group">
+      <label data-i18n="permissions_label">管理权限</label>
+      <div class="perm-grid">
+        <div class="perm-item"><input type="checkbox" id="perm-view-results" checked><label for="perm-view-results" data-i18n="perm_view_results">查看反馈结果</label></div>
+        <div class="perm-item"><input type="checkbox" id="perm-manage-employees" checked><label for="perm-manage-employees" data-i18n="perm_manage_employees">管理人员（开放修改/重置密码）</label></div>
+        <div class="perm-item"><input type="checkbox" id="perm-export-data" checked><label for="perm-export-data" data-i18n="perm_export_data">导出数据</label></div>
+        <div class="perm-item"><input type="checkbox" id="perm-manage-settings"><label for="perm-manage-settings" data-i18n="perm_manage_settings">管理系统设置</label></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-sub-admin')"><span data-i18n="cancel">取消</span></button>
+      <button class="btn btn-primary" id="btn-save-sub-admin" onclick="saveSubAdmin()"><span data-i18n="save">保存</span></button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ============ I18N DICTIONARY ============
+const I18N = {
+  zh: {
+    login_title: 'Petra品牌中国区',
+    login_subtitle: '360度反馈系统 · 2026 H1',
+    login_en_name: '英文名 / English Name',
+    login_en_placeholder: '请输入您的英文名，如 Morpheus',
+    login_password: '密码 / Password',
+    login_pw_placeholder: '请输入HR预设的登录密码',
+    login_button: '登 录',
+    login_error_en_pw: '英文名或密码错误',
+    login_error_empty: '请输入英文名和密码',
+    app_title: '反馈系统',
+    autosaved: '已自动保存',
+    change_password: '修改密码',
+    logout: '退出',
+    role_feedback: '我的反馈',
+    role_admin_panel: '管理后台',
+    role_admin: '管理员',
+    role_employee: '员工',
+    role_sub_admin: '子管理员',
+    dim1_tab: '维度一：员工互评',
+    dim2_tab: '维度二：对上级反馈',
+    dim3_tab: '维度三：上级对下级',
+    dim4_tab: '维度四：匿名领导力',
+    admin_dashboard: '仪表盘',
+    admin_dim1: '维度一：员工互评',
+    admin_dim2: '维度二：对上级反馈',
+    admin_dim3: '维度三：上级对下级',
+    admin_dim4: '维度四：匿名领导力',
+    admin_users: '人员管理',
+    admin_settings: '系统设置',
+    dim1_desc: '<strong>维度一：员工互评（同级反馈）</strong> — 请基于日常工作实际协作体验，对每一位有协作关系的同级同事进行评分。如无实际协作经验，可在对应维度选择"N/A"。',
+    dim1_rubric: '【评分标准】5=卓越(远超预期，为团队树立标杆) | 4=优秀(持续超出岗位要求) | 3=良好(稳定达到预期) | 2=需改进(部分不达标) | 1=不达标(严重影响协作) | N/A=不了解/不适用',
+    dim2_desc: '<strong>维度二：员工对直属上级的反馈</strong> — 请基于与直属上级的日常工作互动，客观评价其管理能力与领导风格。反馈结果仅HR及直属上级的上级可见。',
+    dim_rubric_short: '【评分标准】5=卓越 | 4=优秀 | 3=良好 | 2=需改进 | 1=不达标 | N/A=不了解/不适用',
+    dim3_desc: '<strong>维度三：直属上级对员工的反馈</strong> — 请基于日常工作观察与绩效表现，对每一位直属下级进行客观评价。此反馈将用于Q2绩效面谈。',
+    dim3_rubric: '【评分标准】5=卓越(远超同级标杆) | 4=优秀(持续超出预期) | 3=良好(稳定达标) | 2=需改进(部分不达标) | 1=不达标 | N/A=不了解',
+    dim4_warning: '⚠️ <strong>重要提示：本维度为完全匿名反馈。</strong>您的反馈将以汇总形式提交管理层，不含任何身份识别信息。请放心如实作答。',
+    dim4_desc: '<strong>维度四：匿名领导力反馈</strong> — 对管理层进行领导力维度的匿名评价。评分标准：5=卓越(全公司标杆) | 4=优秀 | 3=良好 | 2=需改进 | 1=需大幅改善 | N/A=不了解',
+    basic_info: '基本信息',
+    evaluator: '填写人',
+    department: '部门',
+    date: '填写日期',
+    manager: '直属上级',
+    manager_name: '上级姓名',
+    add_target: '添加评价对象',
+    add_subordinate: '添加下属评价',
+    save_draft: '保存草稿',
+    submit: '提交',
+    anon_submit: '匿名提交',
+    score_5: '卓越',
+    score_4: '优秀',
+    score_3: '良好',
+    score_2: '需改进',
+    score_1: '不达标',
+    score_0: 'N/A',
+    avg_score: '均分',
+    items_valid: '项有效',
+    submitted: '已提交',
+    draft: '草稿',
+    submit_stats: '反馈提交统计',
+    dept_completion: '部门完成情况',
+    dim1_records: '维度一：员工互评 — 提交记录',
+    dim2_records: '维度二：对上级反馈 — 提交记录',
+    dim3_records: '维度三：上级对下级 — 提交记录',
+    dim4_records: '维度四：匿名领导力反馈 — 提交记录',
+    export_xlsx: '导出Excel',
+    export_csv: '导出CSV',
+    personnel_mgmt: '人员管理',
+    all_depts: '全部部门',
+    refresh: '刷新',
+    sys_settings: '系统设置',
+    open_submit: '开放提交',
+    open_submit_hint: '取消勾选后员工将无法提交新评价',
+    cycle_label: '反馈周期名称',
+    sub_admin_mgmt: '子管理员管理',
+    sub_admin_max: '最多3名',
+    add_sub_admin: '添加子管理员',
+    edit_sub_admin: '编辑子管理员',
+    en_name_label: '英文名',
+    ch_name_label: '中文名',
+    password_label: '密码（至少6位）',
+    permissions_label: '管理权限',
+    perm_view_results: '查看反馈结果',
+    perm_manage_employees: '管理人员（开放修改/重置密码）',
+    perm_export_data: '导出数据',
+    perm_manage_settings: '管理系统设置',
+    old_password: '原密码',
+    new_password: '新密码（至少6位）',
+    confirm_password: '确认新密码',
+    cancel: '取消',
+    confirm: '确认修改',
+    save: '保存',
+    delete: '删除',
+    unlock: '开放修改',
+    reset_pw: '重置密码',
+    lock_status: '状态',
+    locked: '已锁定',
+    editable: '可修改',
+    dim1_peer_label: '互评',
+    dim2_upward_label: '对上级',
+    dim3_downward_label: '对下级',
+    no_records: '暂无评价记录',
+    no_submissions: '暂无提交记录',
+    no_records_anon: '暂无评价记录（您的身份完全匿名）',
+    new_eval: '新评价',
+    target_colleague: '被评价同事姓名',
+    target_dept: '部门',
+    collab_project: '协作项目',
+    strengths_required: '主要优势（必填≥1条）',
+    improvements: '改进建议（如有）',
+    strengths_good: '做得好的方面（必填≥1条）',
+    improvements_required: '需要改进的方面（必填≥1条）',
+    suggestions_opt: '补充说明/建议（选填）',
+    subordinate_name: '下属姓名',
+    subordinate_position: '岗位',
+    strengths_required_2: '核心优势（必填≥2条）',
+    improvements_required_1: '待改进领域及建议（必填≥1条）',
+    target_manager: '评价对象（管理层姓名）',
+    relationship: '协作关系',
+    rel_direct: '直属下级',
+    rel_indirect: '间接下级',
+    rel_peer: '同级',
+    rel_cross: '跨部门协作',
+    feedback_required: '开放反馈与建议（必填≥1条）',
+    org_climate_title: '组织氛围与文化建设（选填）',
+    q1_org: '1. 您认为公司目前在组织管理方面，最需要改进的一个方面是什么？',
+    q2_transparency: '2. 您对管理层在沟通透明度方面有何建议？',
+    q3_engagement: '3. 您对提升整体员工敬业度与归属感有何建议？',
+    eval_manager: '评价上级',
+    delete_confirm: '确定删除此条评价记录？',
+    delete_confirm_short: '确定删除？',
+    save_success: '保存成功',
+    save_draft_success: '草稿已保存',
+    submit_success: '提交成功！',
+    anon_submit_success: '匿名提交成功！',
+    pw_changed: '密码修改成功',
+    pw_mismatch: '两次密码不一致',
+    pw_min_length: '密码至少6位',
+    pw_wrong: '原密码错误',
+    unlocked: '已开放修改权限',
+    unlocked_confirm: '确定开放此员工的修改权限？',
+    pw_reset: '密码已重置',
+    pw_reset_prompt: '请输入新密码（至少6位）：',
+    settings_updated: '设置已更新',
+    sub_admin_created: '子管理员创建成功',
+    sub_admin_updated: '子管理员已更新',
+    sub_admin_deleted: '子管理员已禁用',
+    sub_admin_max_error: '子管理员最多3名',
+    sub_admin_duplicate: '该英文名已被使用',
+    sub_admin_conflict: '该英文名与已有员工冲突',
+    sub_admin_confirm_delete: '确定禁用此子管理员？',
+    delete_item: '删除',
+    submit_validation_name: '请填写被评价同事姓名和主要优势',
+    submit_validation_full: '请填写完整信息',
+    submit_validation_dim2: '请填写"做得好的方面"和"需要改进的方面"',
+    submit_validation_dim4: '请填写评价对象和反馈建议',
+    load_error: '加载失败',
+    load_dashboard_error: '加载仪表盘失败',
+    load_data_error: '加载数据失败',
+    no_data_records: '暂无提交记录',
+    scoring_label: '评分',
+    dim1_dim_com: '沟通协作',
+    dim1_dim_prof: '专业能力',
+    dim1_dim_resp: '责任心',
+    dim1_dim_team: '团队意识',
+    dim1_dim_ps: '解决问题',
+    dim2_dim_goal: '目标制定与传达',
+    dim2_dim_com: '沟通与倾听',
+    dim2_dim_dele: '授权与信任',
+    dim2_dim_fb: '反馈与指导',
+    dim2_dim_clim: '团队氛围营造',
+    dim2_dim_fair: '公平公正',
+    dim3_dim_qual: '工作质量与效率',
+    dim3_dim_prof: '专业能力与学习',
+    dim3_dim_init: '主动性与责任感',
+    dim3_dim_team: '团队协作与沟通',
+    dim3_dim_ps: '解决问题与创新',
+    dim3_dim_cust: '客户导向',
+    dim4_dim_strat: '战略视野与决策',
+    dim4_dim_com: '沟通影响与凝聚力',
+    dim4_dim_emp: '赋能团队与培养',
+    dim4_dim_inno: '变革创新与适应',
+    dim4_dim_integ: '诚信正直与价值观',
+    dim4_dim_exec: '结果导向与执行力',
+    dim4_dim_collab: '跨部门协作力',
+    dim4_dim_emo: '情绪管理与抗压力',
+    add_eval_record: '添加评价对象',
+    collab_input_placeholder: '输入英文名搜索...',
+    tab_dim1: '员工互评',
+    tab_dim2: '对上级反馈',
+    tab_dim3: '上级对下级',
+    tab_dim4: '匿名领导力',
+    status_col: '状态',
+    actions_col: '操作',
+    en_name_col: '英文名',
+    ch_name_col: '中文名',
+    dept_col: '部门',
+    position_col: '岗位',
+    manager_col: '上级',
+    permission_col: '权限',
+    submitted_status: '已提交',
+    not_submitted: '未提交',
+    submit_locked: '已提交，无法修改。如需修改请联系HR。',
+    submit_locked_delete: '已提交，无法删除',
+    record_not_found: '记录不存在',
+    not_logged_in: '未登录',
+    user_disabled: '用户不存在或已禁用',
+    invalid_token: '无效的登录凭证',
+    admin_required: '需要管理员权限',
+    main_admin_only: '仅主管理员可操作',
+    invalid_dim: '无效维度',
+    missing_anon: '缺少匿名标识',
+    lang_unsupported: '不支持的语言',
+    lang_saved: '语言设置已保存'
+  },
+  en: {
+    login_title: 'Petra Brands China',
+    login_subtitle: '360-Degree Feedback System · 2026 H1',
+    login_en_name: 'English Name',
+    login_en_placeholder: 'Enter your English name, e.g. Morpheus',
+    login_password: 'Password',
+    login_pw_placeholder: 'Enter the password provided by HR',
+    login_button: 'Login',
+    login_error_en_pw: 'Incorrect English name or password',
+    login_error_empty: 'Please enter your English name and password',
+    app_title: 'Feedback System',
+    autosaved: 'Auto-saved',
+    change_password: 'Change Password',
+    logout: 'Logout',
+    role_feedback: 'My Feedback',
+    role_admin_panel: 'Admin Panel',
+    role_admin: 'Admin',
+    role_employee: 'Employee',
+    role_sub_admin: 'Sub-Admin',
+    dim1_tab: '1. Peer Feedback',
+    dim2_tab: '2. Upward Feedback',
+    dim3_tab: '3. Downward Feedback',
+    dim4_tab: '4. Anonymous Leadership',
+    admin_dashboard: 'Dashboard',
+    admin_dim1: '1. Peer Feedback',
+    admin_dim2: '2. Upward Feedback',
+    admin_dim3: '3. Downward Feedback',
+    admin_dim4: '4. Anonymous Leadership',
+    admin_users: 'User Management',
+    admin_settings: 'Settings',
+    dim1_desc: '<strong>Dimension 1: Peer Feedback</strong> — Rate each peer colleague based on actual collaboration experience. Select "N/A" if there is no relevant collaboration.',
+    dim1_rubric: '[Rating] 5=Outstanding (sets a benchmark) | 4=Excellent (consistently exceeds) | 3=Good (meets expectations) | 2=Needs Improvement (partially below) | 1=Below Standard (significantly impacts collaboration) | N/A=Not Applicable',
+    dim2_desc: '<strong>Dimension 2: Upward Feedback to Manager</strong> — Objectively evaluate your direct manager\'s management skills and leadership style based on daily interactions. Results visible only to HR and the manager\'s superior.',
+    dim_rubric_short: '[Rating] 5=Outstanding | 4=Excellent | 3=Good | 2=Needs Improvement | 1=Below Standard | N/A=Not Applicable',
+    dim3_desc: '<strong>Dimension 3: Downward Feedback to Subordinates</strong> — Evaluate each direct report objectively based on daily observations and performance. This feedback will be used in Q2 performance reviews.',
+    dim3_rubric: '[Rating] 5=Outstanding (peer benchmark) | 4=Excellent (consistently exceeds) | 3=Good (meets expectations) | 2=Needs Improvement | 1=Below Standard | N/A=Not Applicable',
+    dim4_warning: '⚠️ <strong>Important: This dimension is completely anonymous.</strong> Your feedback will be submitted to management in aggregate form without any identifying information. Please answer honestly.',
+    dim4_desc: '<strong>Dimension 4: Anonymous Leadership Feedback</strong> — Anonymous evaluation of management on leadership dimensions. Rating: 5=Outstanding (company benchmark) | 4=Excellent | 3=Good | 2=Needs Improvement | 1=Needs Significant Improvement | N/A=Not Applicable',
+    basic_info: 'Basic Information',
+    evaluator: 'Evaluator',
+    department: 'Department',
+    date: 'Date',
+    manager: 'Direct Manager',
+    manager_name: 'Manager Name',
+    add_target: 'Add Evaluee',
+    add_subordinate: 'Add Subordinate',
+    save_draft: 'Save Draft',
+    submit: 'Submit',
+    anon_submit: 'Submit Anonymously',
+    score_5: 'Outstanding',
+    score_4: 'Excellent',
+    score_3: 'Good',
+    score_2: 'Needs Improvement',
+    score_1: 'Below Standard',
+    score_0: 'N/A',
+    avg_score: 'Avg',
+    items_valid: 'items valid',
+    submitted: 'Submitted',
+    draft: 'Draft',
+    submit_stats: 'Submission Statistics',
+    dept_completion: 'Department Completion',
+    dim1_records: 'Dimension 1: Peer Feedback — Submissions',
+    dim2_records: 'Dimension 2: Upward Feedback — Submissions',
+    dim3_records: 'Dimension 3: Downward Feedback — Submissions',
+    dim4_records: 'Dimension 4: Anonymous Leadership — Submissions',
+    export_xlsx: 'Export Excel',
+    export_csv: 'Export CSV',
+    personnel_mgmt: 'Personnel Management',
+    all_depts: 'All Departments',
+    refresh: 'Refresh',
+    sys_settings: 'System Settings',
+    open_submit: 'Open Submission',
+    open_submit_hint: 'When unchecked, employees cannot submit new evaluations',
+    cycle_label: 'Cycle Name',
+    sub_admin_mgmt: 'Sub-Admin Management',
+    sub_admin_max: 'Max 3',
+    add_sub_admin: 'Add Sub-Admin',
+    edit_sub_admin: 'Edit Sub-Admin',
+    en_name_label: 'English Name',
+    ch_name_label: 'Chinese Name',
+    password_label: 'Password (min 6 characters)',
+    permissions_label: 'Permissions',
+    perm_view_results: 'View Feedback Results',
+    perm_manage_employees: 'Manage Employees (unlock/reset password)',
+    perm_export_data: 'Export Data',
+    perm_manage_settings: 'Manage System Settings',
+    old_password: 'Current Password',
+    new_password: 'New Password (min 6 characters)',
+    confirm_password: 'Confirm New Password',
+    cancel: 'Cancel',
+    confirm: 'Confirm',
+    save: 'Save',
+    delete: 'Remove',
+    unlock: 'Unlock',
+    reset_pw: 'Reset Password',
+    lock_status: 'Status',
+    locked: 'Locked',
+    editable: 'Editable',
+    dim1_peer_label: 'Peer',
+    dim2_upward_label: 'Upward',
+    dim3_downward_label: 'Downward',
+    no_records: 'No records yet',
+    no_submissions: 'No submissions yet',
+    no_records_anon: 'No records yet (your identity is completely anonymous)',
+    new_eval: 'New Evaluation',
+    target_colleague: 'Colleague Name',
+    target_dept: 'Department',
+    collab_project: 'Collaboration Project',
+    strengths_required: 'Key Strengths (at least 1 required)',
+    improvements: 'Areas for Improvement (if any)',
+    strengths_good: 'What They Do Well (at least 1 required)',
+    improvements_required: 'Areas for Improvement (at least 1 required)',
+    suggestions_opt: 'Additional Comments/Suggestions (optional)',
+    subordinate_name: 'Subordinate Name',
+    subordinate_position: 'Position',
+    strengths_required_2: 'Core Strengths (at least 2 required)',
+    improvements_required_1: 'Areas for Improvement & Suggestions (at least 1 required)',
+    target_manager: 'Evaluee (Management Name)',
+    relationship: 'Relationship',
+    rel_direct: 'Direct Report',
+    rel_indirect: 'Indirect Report',
+    rel_peer: 'Peer',
+    rel_cross: 'Cross-Functional',
+    feedback_required: 'Open Feedback & Suggestions (at least 1 required)',
+    org_climate_title: 'Organizational Climate & Culture (optional)',
+    q1_org: '1. What is the one area of organizational management that needs the most improvement?',
+    q2_transparency: '2. What suggestions do you have for management regarding communication transparency?',
+    q3_engagement: '3. What suggestions do you have for improving overall employee engagement and belonging?',
+    eval_manager: 'Evaluate Manager',
+    delete_confirm: 'Are you sure you want to delete this evaluation?',
+    delete_confirm_short: 'Are you sure?',
+    save_success: 'Saved successfully',
+    save_draft_success: 'Draft saved',
+    submit_success: 'Submitted successfully!',
+    anon_submit_success: 'Anonymous submission successful!',
+    pw_changed: 'Password changed successfully',
+    pw_mismatch: 'Passwords do not match',
+    pw_min_length: 'Password must be at least 6 characters',
+    pw_wrong: 'Current password is incorrect',
+    unlocked: 'Edit permission granted',
+    unlocked_confirm: 'Grant edit permission to this employee?',
+    pw_reset: 'Password has been reset',
+    pw_reset_prompt: 'Enter new password (min 6 characters):',
+    settings_updated: 'Settings updated',
+    sub_admin_created: 'Sub-admin created successfully',
+    sub_admin_updated: 'Sub-admin updated',
+    sub_admin_deleted: 'Sub-admin disabled',
+    sub_admin_max_error: 'Maximum 3 sub-admins allowed',
+    sub_admin_duplicate: 'This English name is already in use',
+    sub_admin_conflict: 'This English name conflicts with an existing employee',
+    sub_admin_confirm_delete: 'Disable this sub-admin?',
+    delete_item: 'Delete',
+    submit_validation_name: 'Please fill in the colleague name and key strengths',
+    submit_validation_full: 'Please fill in all required fields',
+    submit_validation_dim2: 'Please fill in "What They Do Well" and "Areas for Improvement"',
+    submit_validation_dim4: 'Please fill in the evaluee name and feedback',
+    load_error: 'Failed to load',
+    load_dashboard_error: 'Failed to load dashboard',
+    load_data_error: 'Failed to load data',
+    no_data_records: 'No submissions yet',
+    scoring_label: 'Rating',
+    dim1_dim_com: 'Communication & Collaboration',
+    dim1_dim_prof: 'Professional Competence',
+    dim1_dim_resp: 'Responsibility',
+    dim1_dim_team: 'Teamwork',
+    dim1_dim_ps: 'Problem Solving',
+    dim2_dim_goal: 'Goal Setting & Communication',
+    dim2_dim_com: 'Listening & Communication',
+    dim2_dim_dele: 'Delegation & Trust',
+    dim2_dim_fb: 'Feedback & Coaching',
+    dim2_dim_clim: 'Team Climate',
+    dim2_dim_fair: 'Fairness & Consistency',
+    dim3_dim_qual: 'Work Quality & Efficiency',
+    dim3_dim_prof: 'Professional Competence & Learning',
+    dim3_dim_init: 'Initiative & Responsibility',
+    dim3_dim_team: 'Teamwork & Communication',
+    dim3_dim_ps: 'Problem Solving & Innovation',
+    dim3_dim_cust: 'Customer Orientation',
+    dim4_dim_strat: 'Strategic Vision & Decision-Making',
+    dim4_dim_com: 'Communication & Influence',
+    dim4_dim_emp: 'Empowerment & Development',
+    dim4_dim_inno: 'Innovation & Adaptability',
+    dim4_dim_integ: 'Integrity & Values',
+    dim4_dim_exec: 'Results Orientation & Execution',
+    dim4_dim_collab: 'Cross-Functional Collaboration',
+    dim4_dim_emo: 'Emotional Management & Resilience',
+    add_eval_record: 'Add Evaluation Record',
+    collab_input_placeholder: 'Type English name to search...',
+    tab_dim1: 'Peer Feedback',
+    tab_dim2: 'Upward Feedback',
+    tab_dim3: 'Downward Feedback',
+    tab_dim4: 'Anonymous Leadership',
+    status_col: 'Status',
+    actions_col: 'Actions',
+    en_name_col: 'EN Name',
+    ch_name_col: 'CN Name',
+    dept_col: 'Department',
+    position_col: 'Position',
+    manager_col: 'Manager',
+    permission_col: 'Permission',
+    submitted_status: 'Submitted',
+    not_submitted: 'Not Submitted',
+    submit_locked: 'Already submitted. Contact HR to request changes.',
+    submit_locked_delete: 'Already submitted, cannot delete',
+    record_not_found: 'Record not found',
+    not_logged_in: 'Not logged in',
+    user_disabled: 'User not found or disabled',
+    invalid_token: 'Invalid credentials',
+    admin_required: 'Admin permission required',
+    main_admin_only: 'Main admin only',
+    invalid_dim: 'Invalid dimension',
+    missing_anon: 'Missing anonymous token',
+    lang_unsupported: 'Language not supported',
+    lang_saved: 'Language preference saved'
+  }
+};
+
+let currentLang = 'zh';
+function t(key) {
+  return I18N[currentLang]?.[key] || I18N['zh']?.[key] || key;
+}
+
+function applyLanguage() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    el.innerHTML = t(key);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+  });
+  // Update lang button states
+  document.getElementById('lang-zh').classList.toggle('active', currentLang === 'zh');
+  document.getElementById('lang-en').classList.toggle('active', currentLang === 'en');
+  document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+  // Re-render current view
+  if (currentUser) {
+    if (document.getElementById('emp-nav').style.display !== 'none') {
+      if (document.querySelector('#emp-nav .nav-tab.active')) {
+        renderCurrentEmpTab();
+      }
+    }
+    if (document.getElementById('admin-nav').style.display !== 'none') {
+      if (document.querySelector('#admin-nav .nav-tab.active')) {
+        const activeTab = document.querySelector('#admin-nav .nav-tab.active').dataset.tab;
+        renderCurrentAdminTab(activeTab);
+      }
+    }
+  }
+}
+
+async function switchLang(lang) {
+  currentLang = lang;
+  applyLanguage();
+  // Persist to server
+  try {
+    if (currentUser) {
+      await api('/api/lang', {method:'PUT', body: JSON.stringify({lang})});
+    }
+  } catch(e) { /* silent */ }
+  localStorage.setItem('petra_360_lang', lang);
+}
+
+function renderCurrentEmpTab() {
+  const activeTab = document.querySelector('#emp-nav .nav-tab.active')?.dataset.tab;
+  if (activeTab === 'dim1') renderDim1();
+  else if (activeTab === 'dim2') renderDim2();
+  else if (activeTab === 'dim3') renderDim3();
+  else if (activeTab === 'dim4') renderDim4();
+}
+
+function renderCurrentAdminTab(tabId) {
+  if (tabId === 'admin-dashboard') loadAdminDashboard();
+  else if (tabId?.startsWith('admin-dim')) loadAdminSubmissions(tabId.replace('admin-',''));
+  else if (tabId === 'admin-users') loadAdminUsers();
+  else if (tabId === 'admin-settings') { loadAdminSettings(); if (currentUser.role === 'admin') loadSubAdmins(); }
+}
+
+// ============ GLOBALS ============
+const API = '';
+let currentUser = null;
+let userList = [];
+let managerList = [];
+let dim1Data = [], dim2Data = [], dim3Data = [];
+let dim4Token = '';
+let dim4Data = [];
+let autoSaveTimer = null;
+let currentRole = 'feedback'; // 'feedback' or 'admin'
+let editingSubAdminId = null;
+
+// Score labels (dynamic from i18n)
+function scoreLabel(s) { return t('score_' + s); }
+
+const DIM1_DIMS = ['score_communication','score_professional','score_responsibility','score_teamwork','score_problem_solving'];
+const DIM1_DIM_KEYS = ['dim1_dim_com','dim1_dim_prof','dim1_dim_resp','dim1_dim_team','dim1_dim_ps'];
+const DIM2_DIMS = ['score_goal_setting','score_communication','score_delegation','score_feedback','score_team_climate','score_fairness'];
+const DIM2_DIM_KEYS = ['dim2_dim_goal','dim2_dim_com','dim2_dim_dele','dim2_dim_fb','dim2_dim_clim','dim2_dim_fair'];
+const DIM3_DIMS = ['score_quality','score_professional','score_initiative','score_teamwork','score_problem_solving','score_customer'];
+const DIM3_DIM_KEYS = ['dim3_dim_qual','dim3_dim_prof','dim3_dim_init','dim3_dim_team','dim3_dim_ps','dim3_dim_cust'];
+const DIM4_DIMS = ['score_strategic','score_communication','score_empowerment','score_innovation','score_integrity','score_execution','score_collaboration','score_emotional'];
+const DIM4_DIM_KEYS = ['dim4_dim_strat','dim4_dim_com','dim4_dim_emp','dim4_dim_inno','dim4_dim_integ','dim4_dim_exec','dim4_dim_collab','dim4_dim_emo'];
+
+// ============ TOAST ============
+function showToast(msg, type='info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`; t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.classList.add('show'), 10);
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ============ HTTP HELPERS ============
+async function api(path, options={}) {
+  const headers = {'Content-Type':'application/json'};
+  if (currentUser) headers['Authorization'] = `Bearer ${currentUser.id}`;
+  const res = await fetch(API + path, { headers, ...options });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '请求失败');
+  return data;
+}
+
+// ============ LOGIN ============
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const enName = document.getElementById('login-ename').value.trim();
+  const password = document.getElementById('login-password').value.trim();
+  const alertEl = document.getElementById('login-alert');
+  alertEl.innerHTML = '';
+  try {
+    const res = await fetch(API + '/api/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({en_name: enName, password})
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    currentUser = data.user;
+    currentUser.id = data.token;
+    document.cookie = `token=${data.token};path=/;max-age=86400`;
+    // Load language preference
+    const savedLang = localStorage.getItem('petra_360_lang') || data.user.lang || 'zh';
+    currentLang = savedLang;
+    initApp();
+  } catch(err) {
+    alertEl.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+  }
+});
+
+// ============ INIT APP ============
+async function initApp() {
+  try {
+    const me = await api('/api/me');
+    currentUser = { ...currentUser, ...me };
+    if (!currentUser.lang) currentUser.lang = currentLang;
+  } catch(e) { /* use login data */ }
+
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('header-name').textContent = `${currentUser.ch_name || ''} (${currentUser.en_name})`;
+  document.getElementById('header-role').textContent = t('role_' + (currentUser.role === 'sub_admin' ? 'sub_admin' : currentUser.role === 'admin' ? 'admin' : 'employee'));
+  document.getElementById('cycle-label').textContent = '2026 H1';
+  applyLanguage();
+
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'sub_admin';
+  if (isAdmin) {
+    // Show role switch
+    document.getElementById('role-switch').style.display = 'flex';
+    document.getElementById('emp-nav').style.display = 'flex';
+    document.getElementById('admin-nav').style.display = 'none';
+    initEmpTabs();
+    await loadUserList();
+    await loadManagerList();
+    await loadDim1();
+    await loadDim2();
+    await loadDim3();
+    await initDim4();
+    switchTab('dim1');
+    startAutoSave();
+  } else {
+    document.getElementById('emp-nav').style.display = 'flex';
+    document.getElementById('admin-nav').style.display = 'none';
+    initEmpTabs();
+    await loadUserList();
+    await loadManagerList();
+    await loadDim1();
+    await loadDim2();
+    await loadDim3();
+    await initDim4();
+    switchTab('dim1');
+    startAutoSave();
+  }
+}
+
+// ============ ROLE SWITCH ============
+function switchRole(role) {
+  currentRole = role;
+  document.getElementById('role-feedback').classList.toggle('active', role === 'feedback');
+  document.getElementById('role-admin').classList.toggle('active', role === 'admin');
+
+  if (role === 'feedback') {
+    document.getElementById('emp-nav').style.display = 'flex';
+    document.getElementById('admin-nav').style.display = 'none';
+    document.querySelectorAll('#emp-nav .nav-tab').forEach((t,i) => t.classList.toggle('active', i === 0));
+    switchTab('dim1');
+  } else {
+    document.getElementById('emp-nav').style.display = 'none';
+    document.getElementById('admin-nav').style.display = 'flex';
+    document.querySelectorAll('#admin-nav .nav-tab').forEach((t,i) => t.classList.toggle('active', i === 0));
+    switchTab('admin-dashboard');
+  }
+}
+
+// ============ NAVIGATION ============
+function initEmpTabs() {
+  document.querySelectorAll('#emp-nav .nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+  });
+  document.querySelectorAll('#admin-nav .nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+  });
+}
+
+function switchTab(tabId) {
+  // Update nav active
+  const navSelector = tabId.startsWith('admin-') ? '#admin-nav' : '#emp-nav';
+  document.querySelectorAll(`${navSelector} .nav-tab`).forEach(t => t.classList.remove('active'));
+  document.querySelector(`${navSelector} [data-tab="${tabId}"]`)?.classList.add('active');
+  // Show page
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById(`page-${tabId}`);
+  if (page) page.classList.add('active');
+
+  if (tabId.startsWith('admin-')) {
+    if (tabId === 'admin-dashboard') loadAdminDashboard();
+    else if (tabId.startsWith('admin-dim')) loadAdminSubmissions(tabId.replace('admin-',''));
+    else if (tabId === 'admin-users') loadAdminUsers();
+    else if (tabId === 'admin-settings') { loadAdminSettings(); if (currentUser.role === 'admin') loadSubAdmins(); }
+  }
+}
+
+// ============ USER/MANAGER LISTS ============
+async function loadUserList() {
+  try { userList = await api('/api/users'); } catch(e) {}
+}
+async function loadManagerList() {
+  try { managerList = await api('/api/managers'); } catch(e) {}
+}
+
+// ============ DIM1: PEER FEEDBACK ============
+async function loadDim1() {
+  try { dim1Data = await api('/api/dim1'); } catch(e) { dim1Data = []; }
+  document.getElementById('dim1-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
+  document.getElementById('dim1-dept').value = currentUser.department || '';
+  document.getElementById('dim1-date').value = new Date().toISOString().split('T')[0];
+  renderDim1();
+}
+
+function renderDim1() {
+  const container = document.getElementById('dim1-items');
+  if (dim1Data.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
+  } else {
+    container.innerHTML = dim1Data.map((item, idx) => renderDim1Item(item, idx)).join('');
+  }
+  if (!document.getElementById('user-list-all')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'user-list-all';
+    dl.innerHTML = userList.map(u => `<option value="${u.en_name}">${u.ch_name} - ${u.department}</option>`).join('');
+    container.appendChild(dl);
+  }
+  updateBadges();
+}
+
+function renderDim1Item(item, idx) {
+  const scores = DIM1_DIMS.map((d,i) => `
+    <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
+      <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
+        onclick="setDim1Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+    `).join('')}</div></td>
+  `).join('');
+
+  const sc = DIM1_DIMS.filter(d => (item[d]||0) > 0).length;
+  const sm = DIM1_DIMS.reduce((s,d) => s + (item[d]||0), 0);
+  const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
+
+  return `
+    <div class="section-card">
+      <div class="section-header">
+        <h3>#${idx+1} ${item.target_name || t('new_eval')}</h3>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong> (${sc}/${DIM1_DIMS.length} ${t('items_valid')})</span>
+          <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
+          <button class="btn btn-sm btn-danger" onclick="deleteDim1(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="info-row">
+          <div class="form-group"><label>${t('target_colleague')}</label><input type="text" value="${esc(item.target_name||'')}" onchange="updateDim1Field(${idx},'target_name',this.value)" list="user-list-all" placeholder="${t('collab_input_placeholder')}"></div>
+          <div class="form-group"><label>${t('target_dept')}</label><input type="text" value="${esc(item.target_dept||'')}" onchange="updateDim1Field(${idx},'target_dept',this.value)"></div>
+          <div class="form-group"><label>${t('collab_project')}</label><input type="text" value="${esc(item.collaboration_project||'')}" onchange="updateDim1Field(${idx},'collaboration_project',this.value)"></div>
+        </div>
+        <table class="score-table">
+          <thead><tr><th>${t('scoring_label')}</th>${DIM1_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
+          <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
+        </table>
+        <div class="info-row">
+          <div class="form-group"><label>${t('strengths_required')}</label><textarea onchange="updateDim1Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
+          <div class="form-group"><label>${t('improvements')}</label><textarea onchange="updateDim1Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function addDim1Item() {
+  dim1Data.push({ target_name:'', target_dept:'', collaboration_project:'', score_communication:0, score_professional:0, score_responsibility:0, score_teamwork:0, score_problem_solving:0, strengths:'', improvements:'', submitted:false });
+  renderDim1();
+}
+function updateDim1Field(idx, field, value) { dim1Data[idx][field] = value; scheduleAutoSave(); }
+function setDim1Score(idx, field, val) { dim1Data[idx][field] = val; renderDim1(); scheduleAutoSave(); }
+async function deleteDim1(idx) {
+  if (!confirm(t('delete_confirm'))) return;
+  const item = dim1Data[idx];
+  if (item.id) {
+    try { await api(`/api/dim1/${item.id}`, {method:'DELETE'}); } catch(e) { showToast(e.message,'error'); return; }
+  }
+  dim1Data.splice(idx,1);
+  renderDim1();
+}
+async function saveDim1(submit) {
+  for (let i = 0; i < dim1Data.length; i++) {
+    const item = dim1Data[i];
+    item.submitted = submit;
+    if (submit && (!item.target_name || !item.strengths)) {
+      showToast(t('submit_validation_name'), 'error'); return;
+    }
+    try {
+      const res = await api('/api/dim1', {method:'POST', body: JSON.stringify(item)});
+      if (!item.id) { dim1Data[i].id = res.id; }
+    } catch(e) { showToast(e.message, 'error'); return; }
+  }
+  showToast(submit ? t('submit_success') : t('save_draft_success'), 'success');
+  await loadDim1();
+}
+
+// ============ DIM2: UPWARD ============
+async function loadDim2() {
+  try { dim2Data = await api('/api/dim2'); } catch(e) { dim2Data = []; }
+  document.getElementById('dim2-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
+  document.getElementById('dim2-dept').value = currentUser.department || '';
+  document.getElementById('dim2-manager').value = currentUser.manager_en || '';
+  if (dim2Data.length === 0 && currentUser.manager_en) {
+    dim2Data.push({ manager_name: currentUser.manager_en, score_goal_setting:0, score_communication:0, score_delegation:0, score_feedback:0, score_team_climate:0, score_fairness:0, strengths:'', improvements:'', suggestions:'', submitted:false });
+  }
+  renderDim2();
+}
+function renderDim2() {
+  const container = document.getElementById('dim2-items');
+  if (dim2Data.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
+  } else {
+    container.innerHTML = dim2Data.map((item, idx) => renderDim2Item(item, idx)).join('');
+  }
+  updateBadges();
+}
+function renderDim2Item(item, idx) {
+  const scores = DIM2_DIMS.map((d,i) => `
+    <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
+      <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
+        onclick="setDim2Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+    `).join('')}</div></td>
+  `).join('');
+  const sc = DIM2_DIMS.filter(d => (item[d]||0) > 0).length;
+  const sm = DIM2_DIMS.reduce((s,d) => s + (item[d]||0), 0);
+  const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
+  return `
+    <div class="section-card">
+      <div class="section-header">
+        <h3>${t('eval_manager')}：${item.manager_name || currentUser.manager_en || ''}</h3>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong></span>
+          <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
+        </div>
+      </div>
+      <div class="section-body">
+        <table class="score-table">
+          <thead><tr><th>${t('scoring_label')}</th>${DIM2_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
+          <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
+        </table>
+        <div class="form-group"><label>${t('strengths_good')}</label><textarea onchange="updateDim2Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
+        <div class="form-group"><label>${t('improvements_required')}</label><textarea onchange="updateDim2Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
+        <div class="form-group"><label>${t('suggestions_opt')}</label><textarea onchange="updateDim2Field(${idx},'suggestions',this.value)">${esc(item.suggestions||'')}</textarea></div>
+      </div>
+    </div>`;
+}
+function updateDim2Field(idx, field, value) { dim2Data[idx][field] = value; scheduleAutoSave(); }
+function setDim2Score(idx, field, val) { dim2Data[idx][field] = val; renderDim2(); scheduleAutoSave(); }
+async function saveDim2(submit) {
+  const item = dim2Data[0];
+  if (!item) return;
+  item.submitted = submit;
+  if (submit && (!item.strengths || !item.improvements)) {
+    showToast(t('submit_validation_dim2'), 'error'); return;
+  }
+  try {
+    const res = await api('/api/dim2', {method:'POST', body: JSON.stringify(item)});
+    if (!item.id) { dim2Data[0].id = res.id; }
+    showToast(submit ? t('submit_success') : t('save_draft_success'), 'success');
+    await loadDim2();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ============ DIM3: DOWNWARD ============
+async function loadDim3() {
+  try { dim3Data = await api('/api/dim3'); } catch(e) { dim3Data = []; }
+  document.getElementById('dim3-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
+  document.getElementById('dim3-dept').value = currentUser.department || '';
+  document.getElementById('dim3-date').value = new Date().toISOString().split('T')[0];
+  renderDim3();
+}
+function renderDim3() {
+  const container = document.getElementById('dim3-items');
+  if (dim3Data.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
+  } else {
+    container.innerHTML = dim3Data.map((item, idx) => renderDim3Item(item, idx)).join('');
+  }
+  updateBadges();
+}
+function renderDim3Item(item, idx) {
+  const scores = DIM3_DIMS.map((d,i) => `
+    <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
+      <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
+        onclick="setDim3Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+    `).join('')}</div></td>
+  `).join('');
+  const sc = DIM3_DIMS.filter(d => (item[d]||0) > 0).length;
+  const sm = DIM3_DIMS.reduce((s,d) => s + (item[d]||0), 0);
+  const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
+  return `
+    <div class="section-card">
+      <div class="section-header">
+        <h3>#${idx+1} ${item.subordinate_name || t('new_eval')}</h3>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong></span>
+          <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
+          <button class="btn btn-sm btn-danger" onclick="deleteDim3(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="info-row">
+          <div class="form-group"><label>${t('subordinate_name')}</label><input type="text" value="${esc(item.subordinate_name||'')}" onchange="updateDim3Field(${idx},'subordinate_name',this.value)"></div>
+          <div class="form-group"><label>${t('subordinate_position')}</label><input type="text" value="${esc(item.subordinate_position||'')}" onchange="updateDim3Field(${idx},'subordinate_position',this.value)"></div>
+        </div>
+        <table class="score-table">
+          <thead><tr><th>${t('scoring_label')}</th>${DIM3_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
+          <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
+        </table>
+        <div class="info-row">
+          <div class="form-group"><label>${t('strengths_required_2')}</label><textarea onchange="updateDim3Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
+          <div class="form-group"><label>${t('improvements_required_1')}</label><textarea onchange="updateDim3Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
+        </div>
+      </div>
+    </div>`;
+}
+function addDim3Item() {
+  dim3Data.push({ subordinate_name:'', subordinate_position:'', score_quality:0, score_professional:0, score_initiative:0, score_teamwork:0, score_problem_solving:0, score_customer:0, strengths:'', improvements:'', submitted:false });
+  renderDim3();
+}
+function updateDim3Field(idx, field, value) { dim3Data[idx][field] = value; scheduleAutoSave(); }
+function setDim3Score(idx, field, val) { dim3Data[idx][field] = val; renderDim3(); scheduleAutoSave(); }
+async function deleteDim3(idx) {
+  if (!confirm(t('delete_confirm_short'))) return;
+  const item = dim3Data[idx];
+  if (item.id) {
+    try { await api(`/api/dim3/${item.id}`, {method:'DELETE'}); } catch(e) { showToast(e.message,'error'); return; }
+  }
+  dim3Data.splice(idx,1);
+  renderDim3();
+}
+async function saveDim3(submit) {
+  for (let i = 0; i < dim3Data.length; i++) {
+    const item = dim3Data[i];
+    item.submitted = submit;
+    if (submit && (!item.subordinate_name || !item.strengths || !item.improvements)) {
+      showToast(t('submit_validation_full'), 'error'); return;
+    }
+    try {
+      const res = await api('/api/dim3', {method:'POST', body: JSON.stringify(item)});
+      if (!item.id) { dim3Data[i].id = res.id; }
+    } catch(e) { showToast(e.message, 'error'); return; }
+  }
+  showToast(submit ? t('submit_success') : t('save_draft_success'), 'success');
+  await loadDim3();
+}
+
+// ============ DIM4: ANONYMOUS ============
+async function initDim4() {
+  try {
+    const res = await api('/api/dim4/token', {method:'POST'});
+    dim4Token = res.token;
+    document.cookie = `anon_token=${dim4Token};path=/;max-age=86400`;
+  } catch(e) {}
+  try { dim4Data = await api(`/api/dim4?token=${dim4Token}`); } catch(e) { dim4Data = []; }
+  renderDim4();
+}
+function renderDim4() {
+  const container = document.getElementById('dim4-items');
+  if (dim4Data.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">🔒</div><p>${t('no_records_anon')}</p></div>`;
+  } else {
+    container.innerHTML = dim4Data.map((item, idx) => renderDim4Item(item, idx)).join('');
+  }
+  updateBadges();
+}
+function renderDim4Item(item, idx) {
+  const scores = DIM4_DIMS.map((d,i) => `
+    <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
+      <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
+        onclick="setDim4Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+    `).join('')}</div></td>
+  `).join('');
+  const sc = DIM4_DIMS.filter(d => (item[d]||0) > 0).length;
+  const sm = DIM4_DIMS.reduce((s,d) => s + (item[d]||0), 0);
+  const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
+  const rels = ['rel_direct','rel_indirect','rel_peer','rel_cross'];
+  return `
+    <div class="section-card">
+      <div class="section-header">
+        <h3>#${idx+1} ${item.target_name || t('new_eval')}</h3>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong></span>
+          <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
+          <button class="btn btn-sm btn-danger" onclick="deleteDim4(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="info-row">
+          <div class="form-group"><label>${t('target_manager')}</label><input type="text" value="${esc(item.target_name||'')}" onchange="updateDim4Field(${idx},'target_name',this.value)"></div>
+          <div class="form-group"><label>${t('relationship')}</label><select onchange="updateDim4Field(${idx},'relationship',this.value)">
+            <option value="">${t('relationship')}</option>
+            ${rels.map(r => `<option ${item.relationship===t(r)?'selected':''}>${t(r)}</option>`).join('')}
+          </select></div>
+        </div>
+        <table class="score-table">
+          <thead><tr><th>${t('scoring_label')}</th>${DIM4_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
+          <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
+        </table>
+        <div class="form-group"><label>${t('feedback_required')}</label><textarea onchange="updateDim4Field(${idx},'feedback_text',this.value)">${esc(item.feedback_text||'')}</textarea></div>
+        <div style="margin-top:20px;padding-top:16px;border-top:2px solid var(--primary-lighter);">
+          <h4 style="margin-bottom:12px;color:var(--primary);">${t('org_climate_title')}</h4>
+          <div class="form-group"><label>${t('q1_org')}</label><textarea onchange="updateDim4Field(${idx},'q1_org_mgmt',this.value)">${esc(item.q1_org_mgmt||'')}</textarea></div>
+          <div class="form-group"><label>${t('q2_transparency')}</label><textarea onchange="updateDim4Field(${idx},'q2_transparency',this.value)">${esc(item.q2_transparency||'')}</textarea></div>
+          <div class="form-group"><label>${t('q3_engagement')}</label><textarea onchange="updateDim4Field(${idx},'q3_engagement',this.value)">${esc(item.q3_engagement||'')}</textarea></div>
+        </div>
+      </div>
+    </div>`;
+}
+function addDim4Item() {
+  dim4Data.push({ target_name:'', relationship:'', score_strategic:0, score_communication:0, score_empowerment:0, score_innovation:0, score_integrity:0, score_execution:0, score_collaboration:0, score_emotional:0, feedback_text:'', q1_org_mgmt:'', q2_transparency:'', q3_engagement:'', submitted:false });
+  renderDim4();
+}
+function updateDim4Field(idx, field, value) { dim4Data[idx][field] = value; scheduleAutoSave(); }
+function setDim4Score(idx, field, val) { dim4Data[idx][field] = val; renderDim4(); scheduleAutoSave(); }
+async function deleteDim4(idx) {
+  if (!confirm(t('delete_confirm_short'))) return;
+  dim4Data.splice(idx,1);
+  renderDim4();
+}
+async function saveDim4(submit) {
+  for (let i = 0; i < dim4Data.length; i++) {
+    const item = { ...dim4Data[i], token: dim4Token, submitted: submit };
+    if (submit && (!item.target_name || !item.feedback_text)) {
+      showToast(t('submit_validation_dim4'), 'error'); return;
+    }
+    try {
+      const res = await api('/api/dim4', {method:'POST', body: JSON.stringify(item)});
+      if (!dim4Data[i].id) { dim4Data[i].id = res.id; }
+    } catch(e) { showToast(e.message, 'error'); return; }
+  }
+  showToast(submit ? t('anon_submit_success') : t('save_draft_success'), 'success');
+  try { dim4Data = await api(`/api/dim4?token=${dim4Token}`); } catch(e) {}
+  renderDim4();
+}
+
+// ============ AUTO-SAVE ============
+function scheduleAutoSave() {
+  document.getElementById('save-status').style.display = 'flex';
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(doAutoSave, 3000);
+}
+async function doAutoSave() {
+  const tab = document.querySelector('.page.active')?.id || '';
+  try {
+    if (tab === 'page-dim1') await api('/api/autosave', {method:'POST', body: JSON.stringify({dim:'dim1', items: dim1Data})});
+    else if (tab === 'page-dim2') await api('/api/autosave', {method:'POST', body: JSON.stringify({dim:'dim2', items: dim2Data})});
+    else if (tab === 'page-dim3') await api('/api/autosave', {method:'POST', body: JSON.stringify({dim:'dim3', items: dim3Data})});
+    document.getElementById('save-status').innerHTML = '💾 ' + t('autosaved') + ' ' + new Date().toLocaleTimeString();
+  } catch(e) { /* silent */ }
+}
+function startAutoSave() {
+  setInterval(() => {
+    const tab = document.querySelector('.page.active')?.id || '';
+    if (tab.startsWith('page-dim')) doAutoSave();
+  }, 120000);
+}
+
+// ============ BADGES ============
+function updateBadges() {
+  const d1 = dim1Data.filter(i => i.submitted).length;
+  const d2 = dim2Data.filter(i => i.submitted).length;
+  const d3 = dim3Data.filter(i => i.submitted).length;
+  const d4 = dim4Data.filter(i => i.submitted).length;
+  document.getElementById('badge-dim1').textContent = dim1Data.length > 0 ? `${d1}/${dim1Data.length}` : '';
+  document.getElementById('badge-dim2').textContent = dim2Data.length > 0 ? `${d2}/${dim2Data.length}` : '';
+  document.getElementById('badge-dim3').textContent = dim3Data.length > 0 ? `${d3}/${dim3Data.length}` : '';
+  document.getElementById('badge-dim4').textContent = dim4Data.length > 0 ? `${d4}/${dim4Data.length}` : '';
+  document.getElementById('badge-dim1').className = d1 > 0 ? 'badge' : 'badge warn';
+  document.getElementById('badge-dim2').className = d2 > 0 ? 'badge' : 'badge warn';
+  document.getElementById('badge-dim3').className = d3 > 0 ? 'badge' : 'badge warn';
+  document.getElementById('badge-dim4').className = d4 > 0 ? 'badge' : 'badge warn';
+}
+
+// ============ ADMIN ============
+async function loadAdminDashboard() {
+  try {
+    const data = await api('/api/admin/dashboard');
+    const stats = data.submission_stats;
+    const names = {dim1: t('tab_dim1'), dim2: t('tab_dim2'), dim3: t('tab_dim3'), dim4: t('tab_dim4')};
+    document.getElementById('admin-stats').innerHTML = Object.entries(stats).map(([k,v]) => {
+      const pct = v.total > 0 ? Math.round(v.submitted/v.total*100) : 0;
+      return `<div class="stat-card ${pct>=80?'success':pct<50?'warning':''}">
+        <div class="stat-value">${v.submitted}/${v.total}</div>
+        <div class="stat-label">${names[k]}</div>
+        <div class="stat-bar"><div class="stat-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+    document.getElementById('admin-dept-stats').innerHTML = data.department_stats.map(d =>
+      `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+        <span>${d.department}</span><span style="color:var(--gray);">${d.cnt}人</span></div>`
+    ).join('');
+  } catch(e) { showToast(t('load_dashboard_error'), 'error'); }
+}
+
+async function loadAdminSubmissions(dim) {
+  try {
+    const data = await api(`/api/admin/submissions/${dim}`);
+    const tableId = `admin-table-${dim}`;
+    const table = document.getElementById(tableId);
+    if (data.length === 0) {
+      table.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--gray);">${t('no_data_records')}</td></tr>`;
+      return;
+    }
+    const keys = Object.keys(data[0]).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'created_at' && k !== 'evaluator_id');
+    table.innerHTML = `
+      <thead><tr>${keys.map(k => `<th>${k}</th>`).join('')}</tr></thead>
+      <tbody>${data.map(row => `
+        <tr>${keys.map(k => {
+          let val = row[k];
+          if (k === 'submitted') val = val ? `<span class="status-tag done">${t('submitted_status')}</span>` : `<span class="status-tag pending">${t('draft')}</span>`;
+          else if (val === null || val === '') val = '-';
+          else if (k.startsWith('score_') && val === 0) val = '<span style="color:#999;">N/A</span>';
+          return `<td>${val}</td>`;
+        }).join('')}</tr>
+      `).join('')}</tbody>`;
+  } catch(e) { showToast(t('load_data_error'), 'error'); }
+}
+
+async function loadAdminUsers() {
+  try {
+    const data = await api('/api/admin/users');
+    const t = document.getElementById('admin-users-table');
+    const depts = [...new Set(data.map(u => u.department))];
+    const sel = document.getElementById('admin-user-filter-dept');
+    const allDeptLabel = t('all_depts');
+    sel.innerHTML = `<option value="">${allDeptLabel}</option>` + depts.map(d => `<option>${d}</option>`).join('');
+    sel.onchange = () => {
+      const filter = sel.value;
+      renderAdminUsers(data.filter(u => !filter || u.department === filter));
+    };
+    renderAdminUsers(data);
+  } catch(e) { showToast(t('load_error'), 'error'); }
+}
+
+function renderAdminUsers(users) {
+  const table = document.getElementById('admin-users-table');
+  table.innerHTML = `
+    <thead><tr>
+      <th>${t('en_name_col')}</th><th>${t('ch_name_col')}</th><th>${t('dept_col')}</th><th>${t('position_col')}</th><th>${t('manager_col')}</th>
+      <th>${t('dim1_peer_label')}</th><th>${t('dim2_upward_label')}</th><th>${t('dim3_downward_label')}</th><th>${t('permission_col')}</th><th>${t('actions_col')}</th>
+    </tr></thead>
+    <tbody>${users.map(u => `
+      <tr>
+        <td>${u.en_name}</td><td>${u.ch_name||'-'}</td><td>${u.department||'-'}</td><td>${u.position||'-'}</td><td>${u.manager_en||'-'}</td>
+        <td><span class="status-tag ${u.dim1_done>0?'done':'pending'}">${u.dim1_done>0?t('submitted_status'):t('not_submitted')}</span></td>
+        <td><span class="status-tag ${u.dim2_done>0?'done':'pending'}">${u.dim2_done>0?t('submitted_status'):t('not_submitted')}</span></td>
+        <td><span class="status-tag ${u.dim3_done>0?'done':'pending'}">${u.dim3_done>0?t('submitted_status'):t('not_submitted')}</span></td>
+        <td>${u.can_edit?`<span class="status-tag done">${t('editable')}</span>`:`<span class="status-tag none">${t('locked')}</span>`}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="unlockUser(${u.id})" ${u.can_edit?'disabled':''}>${t('unlock')}</button>
+          <button class="btn btn-sm btn-outline" onclick="resetUserPassword(${u.id})">${t('reset_pw')}</button>
+        </td>
+      </tr>
+    `).join('')}</tbody>`;
+}
+
+async function unlockUser(uid) {
+  if (!confirm(t('unlocked_confirm'))) return;
+  try {
+    await api(`/api/admin/unlock/${uid}`, {method:'POST'});
+    showToast(t('unlocked'), 'success');
+    loadAdminUsers();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function resetUserPassword(uid) {
+  const pw = prompt(t('pw_reset_prompt'));
+  if (!pw || pw.length < 6) return;
+  try {
+    await api(`/api/admin/users/${uid}`, {method:'PUT', body: JSON.stringify({password: pw})});
+    showToast(t('pw_reset'), 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function loadAdminSettings() {
+  try {
+    const settings = await api('/api/admin/settings');
+    document.getElementById('setting-submission-open').checked = settings.submission_open === '1';
+    document.getElementById('setting-cycle-name').value = settings.cycle_name || '';
+  } catch(e) {}
+}
+
+async function updateSetting(key, value) {
+  try {
+    await api('/api/admin/settings', {method:'PUT', body: JSON.stringify({[key]: value})});
+    showToast(t('settings_updated'), 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+function exportData(dim, format) {
+  window.open(`${API}/api/admin/export/${dim}?format=${format}`, '_blank');
+}
+
+// ============ SUB-ADMIN MANAGEMENT ============
+async function loadSubAdmins() {
+  if (currentUser.role !== 'admin') return;
+  document.getElementById('sub-admin-section').style.display = 'block';
+  try {
+    const subs = await api('/api/admin/sub-admins');
+    const container = document.getElementById('sub-admin-list');
+    if (subs.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray);">${t('no_submissions')}</div>`;
+      return;
+    }
+    const permLabels = ['perm_view_results','perm_manage_employees','perm_export_data','perm_manage_settings'];
+    const permKeys = ['view_results','manage_employees','export_data','manage_settings'];
+    container.innerHTML = subs.map(s => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <div style="flex:1;min-width:200px;">
+          <strong>${esc(s.en_name)}</strong> ${s.ch_name ? `(${esc(s.ch_name)})` : ''}
+          <div style="font-size:11px;color:var(--gray);margin-top:4px;">
+            ${permKeys.map((pk,i) => `<span style="margin-right:8px;">${s.permissions[pk] ? '✅' : '❌'} ${t(permLabels[i])}</span>`).join('')}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm btn-outline" onclick="editSubAdmin(${s.id})">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSubAdmin(${s.id})">${t('delete')}</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { /* sub-admin may not have permission */ }
+}
+
+function showSubAdminModal(sid) {
+  editingSubAdminId = sid || null;
+  document.getElementById('sub-admin-modal-title').textContent = sid ? t('edit_sub_admin') : t('add_sub_admin');
+  document.getElementById('sub-alert').innerHTML = '';
+  document.getElementById('sub-en-name').value = '';
+  document.getElementById('sub-ch-name').value = '';
+  document.getElementById('sub-password').value = '';
+  document.getElementById('perm-view-results').checked = true;
+  document.getElementById('perm-manage-employees').checked = true;
+  document.getElementById('perm-export-data').checked = true;
+  document.getElementById('perm-manage-settings').checked = false;
+  document.getElementById('btn-save-sub-admin').textContent = t('save');
+
+  if (sid) {
+    loadSubAdminForEdit(sid);
+  }
+  document.getElementById('modal-sub-admin').classList.add('show');
+}
+
+async function loadSubAdminForEdit(sid) {
+  try {
+    const subs = await api('/api/admin/sub-admins');
+    const sub = subs.find(s => s.id === sid);
+    if (sub) {
+      document.getElementById('sub-en-name').value = sub.en_name;
+      document.getElementById('sub-en-name').readOnly = true;
+      document.getElementById('sub-ch-name').value = sub.ch_name || '';
+      document.getElementById('sub-password').placeholder = t('new_password');
+      document.getElementById('perm-view-results').checked = !!sub.permissions.view_results;
+      document.getElementById('perm-manage-employees').checked = !!sub.permissions.manage_employees;
+      document.getElementById('perm-export-data').checked = !!sub.permissions.export_data;
+      document.getElementById('perm-manage-settings').checked = !!sub.permissions.manage_settings;
+    }
+  } catch(e) { showToast(t('load_error'), 'error'); }
+}
+
+async function saveSubAdmin() {
+  const enName = document.getElementById('sub-en-name').value.trim();
+  const chName = document.getElementById('sub-ch-name').value.trim();
+  const password = document.getElementById('sub-password').value.trim();
+  const perms = {
+    view_results: document.getElementById('perm-view-results').checked,
+    manage_employees: document.getElementById('perm-manage-employees').checked,
+    export_data: document.getElementById('perm-export-data').checked,
+    manage_settings: document.getElementById('perm-manage-settings').checked
+  };
+  const alertEl = document.getElementById('sub-alert');
+
+  if (!enName) { alertEl.innerHTML = '<div class="alert alert-error">' + t('login_error_empty') + '</div>'; return; }
+  if (!editingSubAdminId && (!password || password.length < 6)) {
+    alertEl.innerHTML = '<div class="alert alert-error">' + t('pw_min_length') + '</div>'; return;
+  }
+
+  try {
+    if (editingSubAdminId) {
+      const body = { permissions: perms };
+      if (password && password.length >= 6) body.password = password;
+      await api(`/api/admin/sub-admins/${editingSubAdminId}`, {method:'PUT', body: JSON.stringify(body)});
+      showToast(t('sub_admin_updated'), 'success');
+    } else {
+      await api('/api/admin/sub-admins', {method:'POST', body: JSON.stringify({
+        en_name: enName, ch_name: chName, password, permissions: perms
+      })});
+      showToast(t('sub_admin_created'), 'success');
+    }
+    closeModal('modal-sub-admin');
+    editingSubAdminId = null;
+    loadSubAdmins();
+  } catch(e) {
+    alertEl.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+  }
+}
+
+async function editSubAdmin(sid) {
+  showSubAdminModal(sid);
+}
+
+async function deleteSubAdmin(sid) {
+  if (!confirm(t('sub_admin_confirm_delete'))) return;
+  try {
+    await api(`/api/admin/sub-admins/${sid}`, {method:'DELETE'});
+    showToast(t('sub_admin_deleted'), 'success');
+    loadSubAdmins();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ============ MODALS ============
+document.getElementById('btn-change-pw').addEventListener('click', () => {
+  document.getElementById('modal-password').classList.add('show');
+  document.getElementById('pw-old').value = '';
+  document.getElementById('pw-new').value = '';
+  document.getElementById('pw-confirm').value = '';
+  document.getElementById('pw-alert').innerHTML = '';
+});
+
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+async function changePassword() {
+  const oldPw = document.getElementById('pw-old').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  const alert = document.getElementById('pw-alert');
+  if (newPw !== confirm) { alert.innerHTML = `<div class="alert alert-error">${t('pw_mismatch')}</div>`; return; }
+  if (newPw.length < 6) { alert.innerHTML = `<div class="alert alert-error">${t('pw_min_length')}</div>`; return; }
+  try {
+    await api('/api/change_password', {method:'POST', body: JSON.stringify({old_password:oldPw, new_password:newPw})});
+    showToast(t('pw_changed'), 'success');
+    closeModal('modal-password');
+  } catch(e) { alert.innerHTML = `<div class="alert alert-error">${e.message}</div>`; }
+}
+
+document.getElementById('btn-logout').addEventListener('click', () => {
+  document.cookie = 'token=;max-age=0;path=/';
+  location.reload();
+});
+
+// ============ HELPERS ============
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============ CHECK EXISTING SESSION ============
+(function() {
+  const token = document.cookie.split(';').find(c => c.trim().startsWith('token='));
+  // Restore saved language
+  const savedLang = localStorage.getItem('petra_360_lang');
+  if (savedLang) currentLang = savedLang;
+  applyLanguage();
+  if (token) {
+    const uid = token.split('=')[1];
+    fetch(API + '/api/me', { headers: {'Authorization': `Bearer ${uid}`} })
+      .then(r => r.json())
+      .then(data => {
+        if (data.id) {
+          currentUser = data;
+          currentUser.id = uid;
+          if (data.lang) currentLang = data.lang;
+          initApp();
+        }
+      }).catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>

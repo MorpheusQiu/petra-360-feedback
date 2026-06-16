@@ -1,0 +1,1047 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Petra品牌中国区 360度反馈在线调查系统 - 后端 v2.0
+Flask + SQLite
+新增：子管理员 + 多语言支持 + 管理员作为被评估者
+"""
+
+import os, json, hashlib, uuid, csv, io
+from datetime import datetime, timedelta
+from functools import wraps
+from flask import Flask, request, jsonify, send_file, g, make_response
+from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+app = Flask(__name__, static_folder='static', static_url_path='/static')
+app.secret_key = os.environ.get('SECRET_KEY', 'petra-360-feedback-2026-h1-secret-key')
+CORS(app, supports_credentials=True)
+
+DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.environ.get('DB_PATH', os.path.join(DB_DIR, 'feedback.db'))
+os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
+
+# ========== Database ==========
+import sqlite3
+
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode=WAL")
+    return g.db
+
+@app.teardown_appcontext
+def close_db(e):
+    db = g.pop('db', None)
+    if db: db.close()
+
+def init_db():
+    db = sqlite3.connect(DB_PATH)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            en_name TEXT UNIQUE NOT NULL,
+            ch_name TEXT,
+            password_hash TEXT NOT NULL,
+            department TEXT,
+            position TEXT,
+            manager_en TEXT,
+            manager_ch TEXT,
+            role TEXT DEFAULT 'employee',
+            status TEXT DEFAULT 'active',
+            can_edit BOOLEAN DEFAULT 0,
+            lang TEXT DEFAULT 'zh',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS sub_admins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            en_name TEXT UNIQUE NOT NULL,
+            ch_name TEXT,
+            password_hash TEXT NOT NULL,
+            permissions TEXT DEFAULT '{"view_results":true,"manage_employees":true,"export_data":true,"manage_settings":false}',
+            status TEXT DEFAULT 'active',
+            created_by INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS dim1_peer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evaluator_id INTEGER NOT NULL,
+            target_name TEXT NOT NULL,
+            target_dept TEXT,
+            collaboration_project TEXT,
+            score_communication INTEGER DEFAULT 0,
+            score_professional INTEGER DEFAULT 0,
+            score_responsibility INTEGER DEFAULT 0,
+            score_teamwork INTEGER DEFAULT 0,
+            score_problem_solving INTEGER DEFAULT 0,
+            strengths TEXT,
+            improvements TEXT,
+            submitted BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (evaluator_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS dim2_upward (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evaluator_id INTEGER NOT NULL,
+            manager_name TEXT NOT NULL,
+            score_goal_setting INTEGER DEFAULT 0,
+            score_communication INTEGER DEFAULT 0,
+            score_delegation INTEGER DEFAULT 0,
+            score_feedback INTEGER DEFAULT 0,
+            score_team_climate INTEGER DEFAULT 0,
+            score_fairness INTEGER DEFAULT 0,
+            strengths TEXT,
+            improvements TEXT,
+            suggestions TEXT,
+            submitted BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (evaluator_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS dim3_downward (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evaluator_id INTEGER NOT NULL,
+            subordinate_name TEXT NOT NULL,
+            subordinate_position TEXT,
+            score_quality INTEGER DEFAULT 0,
+            score_professional INTEGER DEFAULT 0,
+            score_initiative INTEGER DEFAULT 0,
+            score_teamwork INTEGER DEFAULT 0,
+            score_problem_solving INTEGER DEFAULT 0,
+            score_customer INTEGER DEFAULT 0,
+            strengths TEXT,
+            improvements TEXT,
+            submitted BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (evaluator_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS dim4_leadership (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anonymous_token TEXT NOT NULL,
+            target_name TEXT NOT NULL,
+            relationship TEXT,
+            score_strategic INTEGER DEFAULT 0,
+            score_communication INTEGER DEFAULT 0,
+            score_empowerment INTEGER DEFAULT 0,
+            score_innovation INTEGER DEFAULT 0,
+            score_integrity INTEGER DEFAULT 0,
+            score_execution INTEGER DEFAULT 0,
+            score_collaboration INTEGER DEFAULT 0,
+            score_emotional INTEGER DEFAULT 0,
+            feedback_text TEXT,
+            q1_org_mgmt TEXT,
+            q2_transparency TEXT,
+            q3_engagement TEXT,
+            submitted BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+    ''')
+    db.commit()
+
+    # Migrate: add lang column if not exists
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'zh'")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Check if users exist
+    count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if count == 0:
+        seed_users(db)
+
+    # Seed settings
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('submission_open', '1')")
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('cycle_name', '2026H1')")
+    db.commit()
+    db.close()
+
+def seed_users(db):
+    employees = [
+        # id, en_name, ch_name, department, position, manager_en, role, default_password
+        (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin', 'petra2026'),
+        (2, 'Ali', 'Ali Kaaba', 'Top Management', '管理层', '', 'admin', 'petra2026'),
+        (3, 'Rita', '施利静', 'Top Management', '管理层', '', 'admin', 'petra2026'),
+        (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee', 'petra2026'),
+        (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee', 'petra2026'),
+        (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin', 'petra2026'),
+        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee', 'petra2026'),
+        (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee', 'petra2026'),
+        (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee', 'petra2026'),
+        (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', 'petra2026'),
+        (11, 'Summer', '张萍', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', 'petra2026'),
+        (12, 'Kylie', '张影影', 'Supply Chain Management', '供应链专员', 'Rita', 'employee', 'petra2026'),
+        (13, 'Vanessa', '陈茂', 'Supply Chain Management', '产品专员', 'Rita', 'employee', 'petra2026'),
+        (14, 'Linda', '谢金光', 'Supply Chain Management', '物流专员', 'Rita', 'employee', 'petra2026'),
+        (15, 'Jun', '穆世俊', 'Supply Chain Management', '操作师', 'Rita', 'employee', 'petra2026'),
+        (16, 'Ming', '薛佳明', 'Supply Chain Management', '操作员', 'Rita', 'employee', 'petra2026'),
+        (17, 'Frank', '潘绍兴', 'Supply Chain Management', '仓管', 'Rita', 'employee', 'petra2026'),
+        (18, 'Jim', '刘金', 'Supply Chain Management', '仓管', 'Rita', 'employee', 'petra2026'),
+        (19, 'Suki', '苏强', 'Creative', '摄影/摄像师', 'Ali', 'employee', 'petra2026'),
+        (20, 'Sheikh', '刘石洪', 'Creative', '3D设计', 'Ali', 'employee', 'petra2026'),
+        (21, 'Neil', '周颖强', 'Creative', '包装设计', 'Ali', 'employee', 'petra2026'),
+        (22, 'Chris', '陈仁福', 'Business Management', '亚马逊运营经理', 'Ali', 'employee', 'petra2026'),
+        (23, 'Jemmy', '姚满杰', 'Business Management', '亚马逊运营', 'Chris', 'employee', 'petra2026'),
+        (24, 'Jack', '余德洋', 'Business Management', '亚马逊运营', 'Chris', 'employee', 'petra2026'),
+        (25, 'Catherine', '赵玲玲', 'Business Management', 'Etsy运营', 'Ali', 'employee', 'petra2026'),
+        (26, 'Sophie', '董小芙', 'Business Management', '商务拓展及销售经理', 'Mursal', 'employee', 'petra2026'),
+        (27, 'Jocelyn', '朱瑾', 'Petra Spark', '业务销售', 'Ali', 'employee', 'petra2026'),
+        (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee', 'petra2026'),
+        (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', 'petra2026'),
+    ]
+    for e in employees:
+        db.execute(
+            "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role) VALUES (?,?,?,?,?,?,?,?)",
+            (e[0], e[1], e[2], generate_password_hash(e[7]), e[3], e[4], e[5], e[6])
+        )
+    db.commit()
+
+# ========== Auth Helpers ==========
+def get_auth_token():
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        return auth[7:]
+    return request.cookies.get('token', '')
+
+def _is_admin(user):
+    """Check if user is admin or sub_admin"""
+    return user['role'] in ('admin', 'sub_admin')
+
+def _get_sub_admin_permissions(db, user_id):
+    """Get sub-admin permissions dict"""
+    if not user_id:
+        return None
+    row = db.execute("SELECT permissions FROM sub_admins WHERE id=? AND status='active'", (user_id,)).fetchone()
+    if row:
+        try:
+            return json.loads(row['permissions'])
+        except:
+            return None
+    return None
+
+def _resolve_user(token):
+    """Resolve token to user row (regular users or sub_admins). Returns (user_dict, user_type)
+    Regular users: token = str(user_id)
+    Sub-admins: token = 'sa:' + str(sub_admin_id)
+    """
+    db = get_db()
+
+    # Sub-admin token: prefix "sa:"
+    if token.startswith('sa:'):
+        try:
+            sid = int(token[3:])
+        except (ValueError, TypeError):
+            return None, None
+        sub = db.execute("SELECT * FROM sub_admins WHERE id=? AND status='active'", (sid,)).fetchone()
+        if sub:
+            d = dict(sub)
+            d['role'] = 'sub_admin'
+            d['department'] = ''
+            d['position'] = '子管理员'
+            d['manager_en'] = ''
+            d['manager_ch'] = ''
+            d['can_edit'] = False
+            d['lang'] = 'zh'
+            return d, 'sub_admin'
+        return None, None
+
+    # Regular user token
+    try:
+        uid = int(token)
+    except (ValueError, TypeError):
+        return None, None
+    user = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
+    if user:
+        return dict(user), 'user'
+    return None, None
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = get_auth_token()
+        if not token:
+            return jsonify({'error': '未登录'}), 401
+        user, utype = _resolve_user(token)
+        if not user:
+            return jsonify({'error': '用户不存在或已禁用'}), 401
+        g.user = user
+        g.user_type = utype
+        return f(*args, **kwargs)
+    return decorated
+
+def require_admin(f):
+    """Require admin or sub_admin role"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = get_auth_token()
+        if not token:
+            return jsonify({'error': '未登录'}), 401
+        user, utype = _resolve_user(token)
+        if not user or not _is_admin(user):
+            return jsonify({'error': '需要管理员权限'}), 403
+        g.user = user
+        g.user_type = utype
+        return f(*args, **kwargs)
+    return decorated
+
+def require_main_admin(f):
+    """Require main admin role only"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = get_auth_token()
+        if not token:
+            return jsonify({'error': '未登录'}), 401
+        user, utype = _resolve_user(token)
+        if not user or user['role'] != 'admin':
+            return jsonify({'error': '仅主管理员可操作'}), 403
+        g.user = user
+        g.user_type = utype
+        return f(*args, **kwargs)
+    return decorated
+
+# ========== Init ==========
+init_db()
+
+# ========== Static Files ==========
+@app.route('/api/health')
+def health_check():
+    """健康检查端点 — 用于托管平台就绪探测 + 防休眠"""
+    return jsonify({'status': 'ok', 'time': datetime.now().isoformat()})
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+# ========== Auth API ==========
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    en_name = data.get('en_name', '').strip()
+    password = data.get('password', '').strip()
+    if not en_name or not password:
+        return jsonify({'error': '请输入英文名和密码'}), 400
+    db = get_db()
+
+    # Try regular users first
+    user = db.execute("SELECT * FROM users WHERE en_name=? AND status='active'", (en_name,)).fetchone()
+    if user and check_password_hash(user['password_hash'], password):
+        return jsonify({
+            'token': str(user['id']),
+            'user': {
+                'id': user['id'], 'en_name': user['en_name'], 'ch_name': user['ch_name'],
+                'department': user['department'], 'position': user['position'],
+                'manager_en': user['manager_en'], 'manager_ch': user['manager_ch'],
+                'role': user['role'], 'lang': user['lang'] or 'zh'
+            }
+        })
+
+    # Try sub_admins
+    sub = db.execute("SELECT * FROM sub_admins WHERE en_name=? AND status='active'", (en_name,)).fetchone()
+    if sub and check_password_hash(sub['password_hash'], password):
+        perms = json.loads(sub['permissions']) if sub['permissions'] else {}
+        return jsonify({
+            'token': 'sa:' + str(sub['id']),
+            'user': {
+                'id': sub['id'], 'en_name': sub['en_name'], 'ch_name': sub['ch_name'],
+                'department': '', 'position': '子管理员',
+                'manager_en': '', 'manager_ch': '',
+                'role': 'sub_admin', 'lang': 'zh',
+                'sub_permissions': perms
+            }
+        })
+
+    return jsonify({'error': '英文名或密码错误'}), 401
+
+@app.route('/api/me', methods=['GET'])
+@require_auth
+def get_me():
+    u = g.user
+    db = get_db()
+    sub_open = db.execute("SELECT value FROM settings WHERE key='submission_open'").fetchone()
+    can_submit = sub_open and sub_open['value'] == '1'
+
+    resp = {
+        'id': u['id'], 'en_name': u['en_name'], 'ch_name': u['ch_name'],
+        'department': u.get('department', ''), 'position': u.get('position', ''),
+        'manager_en': u.get('manager_en', ''), 'manager_ch': u.get('manager_ch', ''),
+        'role': u['role'],
+        'can_edit': bool(u.get('can_edit', False)),
+        'can_submit': can_submit,
+        'lang': u.get('lang', 'zh'),
+        'user_type': g.user_type
+    }
+
+    # Sub-admin permissions
+    if u['role'] == 'sub_admin':
+        perms = _get_sub_admin_permissions(db, u['id'])
+        resp['sub_permissions'] = perms
+
+    return jsonify(resp)
+
+@app.route('/api/change_password', methods=['POST'])
+@require_auth
+def change_password():
+    data = request.get_json()
+    old_pw = data.get('old_password', '')
+    new_pw = data.get('new_password', '')
+    if len(new_pw) < 6:
+        return jsonify({'error': '新密码至少6位'}), 400
+    db = get_db()
+
+    if g.user_type == 'sub_admin':
+        if not check_password_hash(g.user['password_hash'], old_pw):
+            return jsonify({'error': '原密码错误'}), 400
+        db.execute("UPDATE sub_admins SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), g.user['id']))
+    else:
+        if not check_password_hash(g.user['password_hash'], old_pw):
+            return jsonify({'error': '原密码错误'}), 400
+        db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), g.user['id']))
+    db.commit()
+    return jsonify({'message': '密码修改成功'})
+
+# ========== Language API ==========
+@app.route('/api/lang', methods=['PUT'])
+@require_auth
+def update_lang():
+    data = request.get_json()
+    lang = data.get('lang', 'zh')
+    if lang not in ('zh', 'en'):
+        return jsonify({'error': '不支持的语言'}), 400
+    db = get_db()
+    if g.user_type == 'sub_admin':
+        # Sub-admins don't have lang column; use cookie
+        resp = make_response(jsonify({'message': '语言设置已保存', 'lang': lang}))
+        resp.set_cookie('lang', lang, max_age=365*24*3600, path='/')
+        return resp
+    else:
+        db.execute("UPDATE users SET lang=? WHERE id=?", (lang, g.user['id']))
+        db.commit()
+        resp = make_response(jsonify({'message': '语言设置已保存', 'lang': lang}))
+        resp.set_cookie('lang', lang, max_age=365*24*3600, path='/')
+        return resp
+
+# ========== User List (for forms) ==========
+@app.route('/api/users', methods=['GET'])
+@require_auth
+def list_users():
+    db = get_db()
+    users = db.execute("SELECT id, en_name, ch_name, department, position, manager_en FROM users WHERE status='active' ORDER BY department, id").fetchall()
+    return jsonify([dict(u) for u in users])
+
+@app.route('/api/managers', methods=['GET'])
+@require_auth
+def list_managers():
+    db = get_db()
+    mgrs = db.execute("SELECT DISTINCT en_name, ch_name FROM users WHERE en_name IN ('Mursal','Ali','Rita','Chris') OR role='admin' ORDER BY id").fetchall()
+    return jsonify([dict(m) for m in mgrs])
+
+# ========== Dimension 1: Peer Feedback ==========
+@app.route('/api/dim1', methods=['GET'])
+@require_auth
+def get_dim1():
+    db = get_db()
+    items = db.execute("SELECT * FROM dim1_peer WHERE evaluator_id=? ORDER BY id", (g.user['id'],)).fetchall()
+    return jsonify([dict(i) for i in items])
+
+@app.route('/api/dim1', methods=['POST'])
+@require_auth
+def save_dim1():
+    data = request.get_json()
+    item_id = data.get('id')
+    db = get_db()
+    now = datetime.now().isoformat()
+
+    if item_id:
+        existing = db.execute("SELECT * FROM dim1_peer WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+        if not existing:
+            return jsonify({'error': '记录不存在'}), 404
+        if existing['submitted'] and not g.user.get('can_edit'):
+            return jsonify({'error': '已提交，无法修改。如需修改请联系HR。'}), 403
+        db.execute('''UPDATE dim1_peer SET target_name=?, target_dept=?, collaboration_project=?,
+            score_communication=?, score_professional=?, score_responsibility=?,
+            score_teamwork=?, score_problem_solving=?, strengths=?, improvements=?,
+            submitted=?, updated_at=? WHERE id=?''',
+            (data.get('target_name',''), data.get('target_dept',''), data.get('collaboration_project',''),
+             data.get('score_communication', 0), data.get('score_professional', 0),
+             data.get('score_responsibility', 0), data.get('score_teamwork', 0),
+             data.get('score_problem_solving', 0), data.get('strengths',''),
+             data.get('improvements',''), int(data.get('submitted', False)), now, item_id))
+        db.commit()
+        return jsonify({'id': item_id, 'message': '保存成功'})
+    else:
+        cur = db.execute('''INSERT INTO dim1_peer (evaluator_id, target_name, target_dept, collaboration_project,
+            score_communication, score_professional, score_responsibility, score_teamwork,
+            score_problem_solving, strengths, improvements, submitted, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (g.user['id'], data.get('target_name',''), data.get('target_dept',''),
+             data.get('collaboration_project',''), data.get('score_communication',0),
+             data.get('score_professional',0), data.get('score_responsibility',0),
+             data.get('score_teamwork',0), data.get('score_problem_solving',0),
+             data.get('strengths',''), data.get('improvements',''),
+             int(data.get('submitted', False)), now, now))
+        db.commit()
+        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+
+@app.route('/api/dim1/<int:item_id>', methods=['DELETE'])
+@require_auth
+def delete_dim1(item_id):
+    db = get_db()
+    item = db.execute("SELECT * FROM dim1_peer WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+    if not item:
+        return jsonify({'error': '记录不存在'}), 404
+    if item['submitted'] and not g.user.get('can_edit'):
+        return jsonify({'error': '已提交，无法删除'}), 403
+    db.execute("DELETE FROM dim1_peer WHERE id=?", (item_id,))
+    db.commit()
+    return jsonify({'message': '删除成功'})
+
+# ========== Dimension 2: Upward Feedback ==========
+@app.route('/api/dim2', methods=['GET'])
+@require_auth
+def get_dim2():
+    db = get_db()
+    items = db.execute("SELECT * FROM dim2_upward WHERE evaluator_id=?", (g.user['id'],)).fetchall()
+    return jsonify([dict(i) for i in items])
+
+@app.route('/api/dim2', methods=['POST'])
+@require_auth
+def save_dim2():
+    data = request.get_json()
+    item_id = data.get('id')
+    db = get_db()
+    now = datetime.now().isoformat()
+    if item_id:
+        existing = db.execute("SELECT * FROM dim2_upward WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+        if not existing: return jsonify({'error': '记录不存在'}), 404
+        if existing['submitted'] and not g.user.get('can_edit'):
+            return jsonify({'error': '已提交，无法修改。如需修改请联系HR。'}), 403
+        db.execute('''UPDATE dim2_upward SET manager_name=?, score_goal_setting=?, score_communication=?,
+            score_delegation=?, score_feedback=?, score_team_climate=?, score_fairness=?,
+            strengths=?, improvements=?, suggestions=?, submitted=?, updated_at=? WHERE id=?''',
+            (data.get('manager_name',''), data.get('score_goal_setting',0),
+             data.get('score_communication',0), data.get('score_delegation',0),
+             data.get('score_feedback',0), data.get('score_team_climate',0),
+             data.get('score_fairness',0), data.get('strengths',''),
+             data.get('improvements',''), data.get('suggestions',''),
+             int(data.get('submitted', False)), now, item_id))
+        db.commit()
+        return jsonify({'id': item_id, 'message': '保存成功'})
+    else:
+        cur = db.execute('''INSERT INTO dim2_upward (evaluator_id, manager_name, score_goal_setting,
+            score_communication, score_delegation, score_feedback, score_team_climate,
+            score_fairness, strengths, improvements, suggestions, submitted, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (g.user['id'], data.get('manager_name',''), data.get('score_goal_setting',0),
+             data.get('score_communication',0), data.get('score_delegation',0),
+             data.get('score_feedback',0), data.get('score_team_climate',0),
+             data.get('score_fairness',0), data.get('strengths',''),
+             data.get('improvements',''), data.get('suggestions',''),
+             int(data.get('submitted', False)), now, now))
+        db.commit()
+        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+
+# ========== Dimension 3: Downward Feedback ==========
+@app.route('/api/dim3', methods=['GET'])
+@require_auth
+def get_dim3():
+    db = get_db()
+    items = db.execute("SELECT * FROM dim3_downward WHERE evaluator_id=? ORDER BY id", (g.user['id'],)).fetchall()
+    return jsonify([dict(i) for i in items])
+
+@app.route('/api/dim3', methods=['POST'])
+@require_auth
+def save_dim3():
+    data = request.get_json()
+    item_id = data.get('id')
+    db = get_db()
+    now = datetime.now().isoformat()
+    if item_id:
+        existing = db.execute("SELECT * FROM dim3_downward WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+        if not existing: return jsonify({'error': '记录不存在'}), 404
+        if existing['submitted'] and not g.user.get('can_edit'):
+            return jsonify({'error': '已提交，无法修改。如需修改请联系HR。'}), 403
+        db.execute('''UPDATE dim3_downward SET subordinate_name=?, subordinate_position=?,
+            score_quality=?, score_professional=?, score_initiative=?, score_teamwork=?,
+            score_problem_solving=?, score_customer=?, strengths=?, improvements=?,
+            submitted=?, updated_at=? WHERE id=?''',
+            (data.get('subordinate_name',''), data.get('subordinate_position',''),
+             data.get('score_quality',0), data.get('score_professional',0),
+             data.get('score_initiative',0), data.get('score_teamwork',0),
+             data.get('score_problem_solving',0), data.get('score_customer',0),
+             data.get('strengths',''), data.get('improvements',''),
+             int(data.get('submitted', False)), now, item_id))
+        db.commit()
+        return jsonify({'id': item_id, 'message': '保存成功'})
+    else:
+        cur = db.execute('''INSERT INTO dim3_downward (evaluator_id, subordinate_name, subordinate_position,
+            score_quality, score_professional, score_initiative, score_teamwork,
+            score_problem_solving, score_customer, strengths, improvements,
+            submitted, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (g.user['id'], data.get('subordinate_name',''), data.get('subordinate_position',''),
+             data.get('score_quality',0), data.get('score_professional',0),
+             data.get('score_initiative',0), data.get('score_teamwork',0),
+             data.get('score_problem_solving',0), data.get('score_customer',0),
+             data.get('strengths',''), data.get('improvements',''),
+             int(data.get('submitted', False)), now, now))
+        db.commit()
+        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+
+# ========== Dimension 4: Anonymous Leadership ==========
+@app.route('/api/dim4/token', methods=['POST'])
+@require_auth
+def get_dim4_token():
+    db = get_db()
+    token = request.cookies.get('anon_token', '')
+    if token and db.execute("SELECT id FROM dim4_leadership WHERE anonymous_token=?", (token,)).fetchone():
+        return jsonify({'token': token})
+    token = hashlib.sha256(f"{g.user['id']}-{uuid.uuid4()}".encode()).hexdigest()[:32]
+    return jsonify({'token': token})
+
+@app.route('/api/dim4', methods=['GET'])
+@require_auth
+def get_dim4():
+    token = request.args.get('token', '')
+    if not token: return jsonify([])
+    db = get_db()
+    items = db.execute("SELECT * FROM dim4_leadership WHERE anonymous_token=?", (token,)).fetchall()
+    return jsonify([dict(i) for i in items])
+
+@app.route('/api/dim4', methods=['POST'])
+@require_auth
+def save_dim4():
+    data = request.get_json()
+    token = data.get('token', '')
+    if not token:
+        return jsonify({'error': '缺少匿名标识'}), 400
+    item_id = data.get('id')
+    db = get_db()
+    now = datetime.now().isoformat()
+    if item_id:
+        existing = db.execute("SELECT * FROM dim4_leadership WHERE id=? AND anonymous_token=?", (item_id, token)).fetchone()
+        if not existing: return jsonify({'error': '记录不存在'}), 404
+        if existing['submitted'] and not g.user.get('can_edit'):
+            return jsonify({'error': '已提交，无法修改。如需修改请联系HR。'}), 403
+        db.execute('''UPDATE dim4_leadership SET target_name=?, relationship=?,
+            score_strategic=?, score_communication=?, score_empowerment=?, score_innovation=?,
+            score_integrity=?, score_execution=?, score_collaboration=?, score_emotional=?,
+            feedback_text=?, q1_org_mgmt=?, q2_transparency=?, q3_engagement=?,
+            submitted=?, updated_at=? WHERE id=?''',
+            (data.get('target_name',''), data.get('relationship',''),
+             data.get('score_strategic',0), data.get('score_communication',0),
+             data.get('score_empowerment',0), data.get('score_innovation',0),
+             data.get('score_integrity',0), data.get('score_execution',0),
+             data.get('score_collaboration',0), data.get('score_emotional',0),
+             data.get('feedback_text',''), data.get('q1_org_mgmt',''),
+             data.get('q2_transparency',''), data.get('q3_engagement',''),
+             int(data.get('submitted', False)), now, item_id))
+        db.commit()
+        return jsonify({'id': item_id, 'message': '保存成功'})
+    else:
+        cur = db.execute('''INSERT INTO dim4_leadership (anonymous_token, target_name, relationship,
+            score_strategic, score_communication, score_empowerment, score_innovation,
+            score_integrity, score_execution, score_collaboration, score_emotional,
+            feedback_text, q1_org_mgmt, q2_transparency, q3_engagement, submitted, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (token, data.get('target_name',''), data.get('relationship',''),
+             data.get('score_strategic',0), data.get('score_communication',0),
+             data.get('score_empowerment',0), data.get('score_innovation',0),
+             data.get('score_integrity',0), data.get('score_execution',0),
+             data.get('score_collaboration',0), data.get('score_emotional',0),
+             data.get('feedback_text',''), data.get('q1_org_mgmt',''),
+             data.get('q2_transparency',''), data.get('q3_engagement',''),
+             int(data.get('submitted', False)), now, now))
+        db.commit()
+        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+
+# ========== Admin API ==========
+@app.route('/api/admin/dashboard', methods=['GET'])
+@require_admin
+def admin_dashboard():
+    db = get_db()
+    total_users = db.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0]
+
+    stats = {}
+    for dim, table, uid_col in [
+        ('dim1', 'dim1_peer', 'evaluator_id'),
+        ('dim2', 'dim2_upward', 'evaluator_id'),
+        ('dim3', 'dim3_downward', 'evaluator_id')
+    ]:
+        submitted = db.execute(f"SELECT COUNT(DISTINCT {uid_col}) FROM {table} WHERE submitted=1").fetchone()[0]
+        stats[dim] = {'submitted': submitted, 'total': total_users}
+
+    dim4_count = db.execute("SELECT COUNT(*) FROM dim4_leadership WHERE submitted=1").fetchone()[0]
+    stats['dim4'] = {'submitted': dim4_count, 'total': total_users}
+
+    dept_stats = db.execute('''
+        SELECT department, COUNT(*) as cnt FROM users WHERE status='active' GROUP BY department
+    ''').fetchall()
+
+    return jsonify({
+        'total_users': total_users,
+        'submission_stats': stats,
+        'department_stats': [dict(d) for d in dept_stats]
+    })
+
+@app.route('/api/admin/submissions/<dim>', methods=['GET'])
+@require_admin
+def admin_submissions(dim):
+    db = get_db()
+    if dim == 'dim1':
+        rows = db.execute('''
+            SELECT d.*, u.en_name as evaluator_en, u.ch_name as evaluator_ch, u.department as evaluator_dept
+            FROM dim1_peer d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department, d.id
+        ''').fetchall()
+    elif dim == 'dim2':
+        rows = db.execute('''
+            SELECT d.*, u.en_name as evaluator_en, u.ch_name as evaluator_ch, u.department as evaluator_dept
+            FROM dim2_upward d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department
+        ''').fetchall()
+    elif dim == 'dim3':
+        rows = db.execute('''
+            SELECT d.*, u.en_name as evaluator_en, u.ch_name as evaluator_ch, u.department as evaluator_dept
+            FROM dim3_downward d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department, d.id
+        ''').fetchall()
+    elif dim == 'dim4':
+        rows = db.execute("SELECT * FROM dim4_leadership ORDER BY submitted DESC, id").fetchall()
+    else:
+        return jsonify({'error': '无效维度'}), 400
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/admin/users', methods=['GET'])
+@require_admin
+def admin_users():
+    db = get_db()
+    users = db.execute('''
+        SELECT u.*,
+            (SELECT COUNT(*) FROM dim1_peer WHERE evaluator_id=u.id AND submitted=1) as dim1_done,
+            (SELECT COUNT(*) FROM dim2_upward WHERE evaluator_id=u.id AND submitted=1) as dim2_done,
+            (SELECT COUNT(*) FROM dim3_downward WHERE evaluator_id=u.id AND submitted=1) as dim3_done
+        FROM users u WHERE status='active' ORDER BY u.department, u.id
+    ''').fetchall()
+    return jsonify([dict(u) for u in users])
+
+@app.route('/api/admin/users/<int:uid>', methods=['PUT'])
+@require_admin
+def admin_update_user(uid):
+    data = request.get_json()
+    db = get_db()
+    if 'can_edit' in data:
+        db.execute("UPDATE users SET can_edit=? WHERE id=?", (int(data['can_edit']), uid))
+    if 'password' in data and data['password']:
+        db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(data['password']), uid))
+    db.commit()
+    return jsonify({'message': '更新成功'})
+
+@app.route('/api/admin/settings', methods=['GET'])
+@require_admin
+def admin_get_settings():
+    db = get_db()
+    rows = db.execute("SELECT * FROM settings").fetchall()
+    return jsonify({r['key']: r['value'] for r in rows})
+
+@app.route('/api/admin/settings', methods=['PUT'])
+@require_admin
+def admin_update_settings():
+    data = request.get_json()
+    db = get_db()
+    for k, v in data.items():
+        db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
+    db.commit()
+    return jsonify({'message': '设置已更新'})
+
+@app.route('/api/admin/unlock/<int:uid>', methods=['POST'])
+@require_admin
+def admin_unlock_user(uid):
+    db = get_db()
+    db.execute("UPDATE users SET can_edit=1 WHERE id=?", (uid,))
+    for table in ['dim1_peer', 'dim2_upward', 'dim3_downward']:
+        db.execute(f"UPDATE {table} SET submitted=0 WHERE evaluator_id=?", (uid,))
+    db.commit()
+    return jsonify({'message': '已开放修改权限'})
+
+# ========== Sub-Admin Management (Main Admin Only) ==========
+@app.route('/api/admin/sub-admins', methods=['GET'])
+@require_main_admin
+def list_sub_admins():
+    db = get_db()
+    subs = db.execute("SELECT * FROM sub_admins ORDER BY id").fetchall()
+    result = []
+    for s in subs:
+        d = dict(s)
+        d.pop('password_hash', None)
+        d['permissions'] = json.loads(d['permissions']) if d['permissions'] else {}
+        result.append(d)
+    return jsonify(result)
+
+@app.route('/api/admin/sub-admins', methods=['POST'])
+@require_main_admin
+def create_sub_admin():
+    data = request.get_json()
+    en_name = data.get('en_name', '').strip()
+    ch_name = data.get('ch_name', '').strip()
+    password = data.get('password', '').strip()
+    permissions = data.get('permissions', {
+        'view_results': True,
+        'manage_employees': True,
+        'export_data': True,
+        'manage_settings': False
+    })
+
+    if not en_name or not password:
+        return jsonify({'error': '英文名和密码不能为空'}), 400
+    if len(password) < 6:
+        return jsonify({'error': '密码至少6位'}), 400
+
+    db = get_db()
+    # Check count limit
+    count = db.execute("SELECT COUNT(*) FROM sub_admins WHERE status='active'").fetchone()[0]
+    if count >= 3:
+        return jsonify({'error': '子管理员最多3名'}), 400
+
+    # Check uniqueness
+    existing = db.execute("SELECT id FROM sub_admins WHERE en_name=?", (en_name,)).fetchone()
+    if existing:
+        return jsonify({'error': '该英文名已被使用'}), 400
+    # Also check regular users
+    existing_user = db.execute("SELECT id FROM users WHERE en_name=?", (en_name,)).fetchone()
+    if existing_user:
+        return jsonify({'error': '该英文名与已有员工冲突'}), 400
+
+    db.execute('''INSERT INTO sub_admins (en_name, ch_name, password_hash, permissions, created_by)
+        VALUES (?,?,?,?,?)''',
+        (en_name, ch_name, generate_password_hash(password), json.dumps(permissions), g.user['id']))
+    db.commit()
+    return jsonify({'message': '子管理员创建成功'})
+
+@app.route('/api/admin/sub-admins/<int:sid>', methods=['PUT'])
+@require_main_admin
+def update_sub_admin(sid):
+    data = request.get_json()
+    db = get_db()
+    sub = db.execute("SELECT * FROM sub_admins WHERE id=?", (sid,)).fetchone()
+    if not sub:
+        return jsonify({'error': '子管理员不存在'}), 404
+
+    if 'password' in data and data['password']:
+        db.execute("UPDATE sub_admins SET password_hash=? WHERE id=?", (generate_password_hash(data['password']), sid))
+    if 'permissions' in data:
+        db.execute("UPDATE sub_admins SET permissions=? WHERE id=?", (json.dumps(data['permissions']), sid))
+    if 'status' in data:
+        db.execute("UPDATE sub_admins SET status=? WHERE id=?", (data['status'], sid))
+
+    db.commit()
+    return jsonify({'message': '子管理员已更新'})
+
+@app.route('/api/admin/sub-admins/<int:sid>', methods=['DELETE'])
+@require_main_admin
+def delete_sub_admin(sid):
+    db = get_db()
+    db.execute("UPDATE sub_admins SET status='inactive' WHERE id=?", (sid,))
+    db.commit()
+    return jsonify({'message': '子管理员已禁用'})
+
+# ========== Export ==========
+@app.route('/api/admin/export/<dim>', methods=['GET'])
+@require_admin
+def admin_export(dim):
+    fmt = request.args.get('format', 'xlsx')
+    db = get_db()
+
+    if fmt == 'csv':
+        return export_csv(db, dim)
+    else:
+        return export_xlsx(db, dim)
+
+def export_xlsx(db, dim):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+    header_fill = PatternFill('solid', fgColor='1F4E79')
+    thin_border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+
+    dim_config = {
+        'dim1': {
+            'title': '维度一：员工互评（同级反馈）',
+            'columns': ['评估人(EN)', '评估人(中文)', '评估人部门', '被评价同事', '被评价部门', '协作项目',
+                       '沟通协作', '专业能力', '责任心', '团队意识', '解决问题', '总均分', '主要优势', '改进建议', '状态', '提交时间'],
+            'query': '''SELECT u.en_name, u.ch_name, u.department, d.target_name, d.target_dept,
+                d.collaboration_project, d.score_communication, d.score_professional,
+                d.score_responsibility, d.score_teamwork, d.score_problem_solving,
+                d.strengths, d.improvements, d.submitted, d.updated_at
+                FROM dim1_peer d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department, d.id'''
+        },
+        'dim2': {
+            'title': '维度二：员工对直属上级的反馈',
+            'columns': ['评估人(EN)', '评估人(中文)', '评估人部门', '上级姓名', '目标制定', '沟通倾听',
+                       '授权信任', '反馈指导', '团队氛围', '公平公正', '总均分', '做得好的方面', '需改进方面', '建议', '状态', '提交时间'],
+            'query': '''SELECT u.en_name, u.ch_name, u.department, d.manager_name,
+                d.score_goal_setting, d.score_communication, d.score_delegation, d.score_feedback,
+                d.score_team_climate, d.score_fairness, d.strengths, d.improvements,
+                d.suggestions, d.submitted, d.updated_at
+                FROM dim2_upward d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department'''
+        },
+        'dim3': {
+            'title': '维度三：直属上级对员工的反馈',
+            'columns': ['评估人(EN)', '评估人(中文)', '评估人部门', '下属姓名', '下属岗位', '工作质量',
+                       '专业能力', '主动性', '团队协作', '解决问题', '客户导向', '总均分', '核心优势', '改进建议', '状态', '提交时间'],
+            'query': '''SELECT u.en_name, u.ch_name, u.department, d.subordinate_name,
+                d.subordinate_position, d.score_quality, d.score_professional, d.score_initiative,
+                d.score_teamwork, d.score_problem_solving, d.score_customer,
+                d.strengths, d.improvements, d.submitted, d.updated_at
+                FROM dim3_downward d JOIN users u ON d.evaluator_id = u.id ORDER BY u.department, d.id'''
+        },
+        'dim4': {
+            'title': '维度四：匿名领导力反馈',
+            'columns': ['匿名标识', '评价对象', '协作关系', '战略视野', '沟通影响', '赋能团队', '变革创新',
+                       '诚信正直', '结果导向', '跨部门协作', '情绪管理', '总均分', '反馈建议',
+                       '组织管理建议', '沟通透明度建议', '敬业度建议', '状态', '提交时间'],
+            'query': '''SELECT anonymous_token, target_name, relationship, score_strategic,
+                score_communication as comm, score_empowerment, score_innovation,
+                score_integrity, score_execution, score_collaboration, score_emotional,
+                feedback_text, q1_org_mgmt, q2_transparency, q3_engagement,
+                submitted, updated_at FROM dim4_leadership ORDER BY id'''
+        }
+    }
+
+    config = dim_config.get(dim)
+    if not config:
+        return jsonify({'error': '无效维度'}), 400
+
+    ws.merge_cells('A1:Q1')
+    c = ws.cell(row=1, column=1, value=f"Petra品牌中国区 - {config['title']} ({datetime.now().strftime('%Y-%m-%d')})")
+    c.font = Font(name='Arial', size=14, bold=True, color='1F4E79')
+    c.alignment = Alignment(horizontal='center')
+
+    for i, col_name in enumerate(config['columns'], 1):
+        c = ws.cell(row=3, column=i, value=col_name)
+        c.font = header_font; c.fill = header_fill; c.border = thin_border
+        c.alignment = Alignment(horizontal='center', wrap_text=True)
+
+    rows = db.execute(config['query']).fetchall()
+    score_cols = []
+    for i, col_name in enumerate(config['columns']):
+        if col_name in ['沟通协作','专业能力','责任心','团队意识','解决问题','目标制定','沟通倾听','授权信任','反馈指导','团队氛围','公平公正',
+                        '工作质量','主动性','团队协作','解决问题','客户导向','战略视野','沟通影响','赋能团队','变革创新','诚信正直','结果导向','跨部门协作','情绪管理']:
+            score_cols.append(i)
+
+    for r, row in enumerate(rows):
+        for c, val in enumerate(row):
+            cell = ws.cell(row=r+4, column=c+1, value=val if val else '')
+            cell.font = Font(name='Arial', size=10)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+        row_num = r + 4
+        try:
+            avg_idx = config['columns'].index('总均分')
+            cell = ws.cell(row=row_num, column=avg_idx+1)
+            if not cell.value and score_cols:
+                cell.value = f'=ROUND(AVERAGEIF({openpyxl.utils.get_column_letter(score_cols[0]+1)}{row_num}:{openpyxl.utils.get_column_letter(score_cols[-1]+1)}{row_num},">0"),1)'
+        except ValueError:
+            pass
+
+    for i in range(1, len(config['columns'])+1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 16
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=f'Petra_360_{dim}_{datetime.now().strftime("%Y%m%d")}.xlsx')
+
+def export_csv(db, dim):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Sheet'])
+
+    queries = {
+        'dim1': 'SELECT * FROM dim1_peer',
+        'dim2': 'SELECT * FROM dim2_upward',
+        'dim3': 'SELECT * FROM dim3_downward',
+        'dim4': 'SELECT * FROM dim4_leadership'
+    }
+    rows = db.execute(queries.get(dim, queries['dim1'])).fetchall()
+    if rows:
+        writer.writerow([k for k in rows[0].keys()])
+        for row in rows:
+            writer.writerow([v for v in row])
+    output.seek(0)
+    return send_file(io.BytesIO(output.getvalue().encode('utf-8-sig')),
+                     mimetype='text/csv', as_attachment=True,
+                     download_name=f'Petra_360_{dim}_{datetime.now().strftime("%Y%m%d")}.csv')
+
+# ========== Auto-save API ==========
+@app.route('/api/autosave', methods=['POST'])
+@require_auth
+def autosave():
+    data = request.get_json()
+    dim = data.get('dim')
+    items = data.get('items', [])
+    db = get_db()
+    now = datetime.now().isoformat()
+
+    table_map = {
+        'dim1': ('dim1_peer', ['target_name','target_dept','collaboration_project','score_communication','score_professional','score_responsibility','score_teamwork','score_problem_solving','strengths','improvements']),
+        'dim2': ('dim2_upward', ['manager_name','score_goal_setting','score_communication','score_delegation','score_feedback','score_team_climate','score_fairness','strengths','improvements','suggestions']),
+        'dim3': ('dim3_downward', ['subordinate_name','subordinate_position','score_quality','score_professional','score_initiative','score_teamwork','score_problem_solving','score_customer','strengths','improvements']),
+    }
+
+    if dim not in table_map:
+        return jsonify({'error': '无效维度'}), 400
+
+    table, fields = table_map[dim]
+    for item in items:
+        item_id = item.get('id')
+        vals = [item.get(f, '') for f in fields]
+        if item_id:
+            set_clause = ', '.join([f'{f}=?' for f in fields])
+            db.execute(f"UPDATE {table} SET {set_clause}, updated_at=? WHERE id=? AND evaluator_id=?",
+                       vals + [now, item_id, g.user['id']])
+        else:
+            placeholders = ','.join(['?']*len(fields))
+            db.execute(f"INSERT INTO {table} (evaluator_id,{','.join(fields)},created_at,updated_at) VALUES (?,{placeholders},?,?)",
+                       [g.user['id']] + vals + [now, now])
+    db.commit()
+    return jsonify({'message': '自动保存成功', 'time': now})
+
+# ========== Submission Status ==========
+@app.route('/api/status', methods=['GET'])
+@require_auth
+def get_status():
+    db = get_db()
+    uid = g.user['id']
+    status = {
+        'dim1': db.execute("SELECT COUNT(*) FROM dim1_peer WHERE evaluator_id=? AND submitted=1", (uid,)).fetchone()[0],
+        'dim1_total': db.execute("SELECT COUNT(*) FROM dim1_peer WHERE evaluator_id=?", (uid,)).fetchone()[0],
+        'dim2': db.execute("SELECT COUNT(*) FROM dim2_upward WHERE evaluator_id=? AND submitted=1", (uid,)).fetchone()[0],
+        'dim3': db.execute("SELECT COUNT(*) FROM dim3_downward WHERE evaluator_id=? AND submitted=1", (uid,)).fetchone()[0],
+    }
+    token = request.args.get('anon_token', '')
+    if token:
+        status['dim4'] = db.execute("SELECT COUNT(*) FROM dim4_leadership WHERE anonymous_token=? AND submitted=1", (token,)).fetchone()[0]
+    return jsonify(status)
+
+# ========== Run ==========
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
