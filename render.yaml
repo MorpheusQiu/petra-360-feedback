@@ -17,6 +17,8 @@ services:
         value: "0.0.0.0"
       - key: SECRET_KEY
         generateValue: true    # Render 自动生成 64 位随机密钥
+      - key: INIT_DEFAULT_PASSWORD
+        value: "petra2026"     # 首次初始化默认密码（部署后可删除此变量让 Render 随机生成）
       - key: PYTHON_VERSION
         value: "3.13.12"
 
