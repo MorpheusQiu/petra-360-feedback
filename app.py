@@ -6,7 +6,7 @@ Flask + SQLite
 新增：子管理员 + 多语言支持 + 管理员作为被评估者
 """
 
-import os, json, hashlib, uuid, csv, io
+import os, json, hashlib, hmac, secrets, uuid, csv, io, re
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, send_file, g, make_response
@@ -16,8 +16,29 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
-app.secret_key = os.environ.get('SECRET_KEY', 'petra-360-feedback-2026-h1-secret-key')
+app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 CORS(app, supports_credentials=True)
+
+# ========== Token signing (HMAC) ==========
+def _sign_token(prefix, uid):
+    """Sign a user ID with HMAC-SHA256 to prevent token forgery."""
+    key = app.secret_key.encode()
+    msg = f"{prefix}:{uid}".encode()
+    sig = hmac.new(key, msg, 'sha256').hexdigest()[:16]
+    return f"{prefix}:{uid}:{sig}"
+
+def _verify_token(token, expected_prefix):
+    """Verify HMAC signature on a signed token. Returns the user ID or None."""
+    parts = token.split(':', 2)
+    if len(parts) != 3 or parts[0] != expected_prefix:
+        return None
+    prefix, uid_str, sig = parts
+    if _sign_token(prefix, uid_str) == token:
+        try:
+            return int(uid_str)
+        except (ValueError, TypeError):
+            return None
+    return None
 
 DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get('DB_PATH', os.path.join(DB_DIR, 'feedback.db'))
@@ -175,43 +196,46 @@ def init_db():
     db.close()
 
 def seed_users(db):
+    """Initialize database with default employees. Each gets a unique random password."""
     employees = [
-        # id, en_name, ch_name, department, position, manager_en, role, default_password
-        (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin', 'petra2026'),
-        (2, 'Ali', 'Ali Kaaba', 'Top Management', '管理层', '', 'admin', 'petra2026'),
-        (3, 'Rita', '施利静', 'Top Management', '管理层', '', 'admin', 'petra2026'),
-        (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee', 'petra2026'),
-        (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee', 'petra2026'),
-        (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin', 'petra2026'),
-        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee', 'petra2026'),
-        (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee', 'petra2026'),
-        (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee', 'petra2026'),
-        (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', 'petra2026'),
-        (11, 'Summer', '张萍', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', 'petra2026'),
-        (12, 'Kylie', '张影影', 'Supply Chain Management', '供应链专员', 'Rita', 'employee', 'petra2026'),
-        (13, 'Vanessa', '陈茂', 'Supply Chain Management', '产品专员', 'Rita', 'employee', 'petra2026'),
-        (14, 'Linda', '谢金光', 'Supply Chain Management', '物流专员', 'Rita', 'employee', 'petra2026'),
-        (15, 'Jun', '穆世俊', 'Supply Chain Management', '操作师', 'Rita', 'employee', 'petra2026'),
-        (16, 'Ming', '薛佳明', 'Supply Chain Management', '操作员', 'Rita', 'employee', 'petra2026'),
-        (17, 'Frank', '潘绍兴', 'Supply Chain Management', '仓管', 'Rita', 'employee', 'petra2026'),
-        (18, 'Jim', '刘金', 'Supply Chain Management', '仓管', 'Rita', 'employee', 'petra2026'),
-        (19, 'Suki', '苏强', 'Creative', '摄影/摄像师', 'Ali', 'employee', 'petra2026'),
-        (20, 'Sheikh', '刘石洪', 'Creative', '3D设计', 'Ali', 'employee', 'petra2026'),
-        (21, 'Neil', '周颖强', 'Creative', '包装设计', 'Ali', 'employee', 'petra2026'),
-        (22, 'Chris', '陈仁福', 'Business Management', '亚马逊运营经理', 'Ali', 'employee', 'petra2026'),
-        (23, 'Jemmy', '姚满杰', 'Business Management', '亚马逊运营', 'Chris', 'employee', 'petra2026'),
-        (24, 'Jack', '余德洋', 'Business Management', '亚马逊运营', 'Chris', 'employee', 'petra2026'),
-        (25, 'Catherine', '赵玲玲', 'Business Management', 'Etsy运营', 'Ali', 'employee', 'petra2026'),
-        (26, 'Sophie', '董小芙', 'Business Management', '商务拓展及销售经理', 'Mursal', 'employee', 'petra2026'),
-        (27, 'Jocelyn', '朱瑾', 'Petra Spark', '业务销售', 'Ali', 'employee', 'petra2026'),
-        (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee', 'petra2026'),
-        (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', 'petra2026'),
+        # id, en_name, ch_name, department, position, manager_en, role
+        (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin'),
+        (2, 'Ali', 'Ali Kaaba', 'Top Management', '管理层', '', 'admin'),
+        (3, 'Rita', '施利静', 'Top Management', '管理层', '', 'admin'),
+        (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee'),
+        (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee'),
+        (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin'),
+        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee'),
+        (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee'),
+        (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee'),
+        (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee'),
+        (11, 'Summer', '张萍', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee'),
+        (12, 'Kylie', '张影影', 'Supply Chain Management', '供应链专员', 'Rita', 'employee'),
+        (13, 'Vanessa', '陈茂', 'Supply Chain Management', '产品专员', 'Rita', 'employee'),
+        (14, 'Linda', '谢金光', 'Supply Chain Management', '物流专员', 'Rita', 'employee'),
+        (15, 'Jun', '穆世俊', 'Supply Chain Management', '操作师', 'Rita', 'employee'),
+        (16, 'Ming', '薛佳明', 'Supply Chain Management', '操作员', 'Rita', 'employee'),
+        (17, 'Frank', '潘绍兴', 'Supply Chain Management', '仓管', 'Rita', 'employee'),
+        (18, 'Jim', '刘金', 'Supply Chain Management', '仓管', 'Rita', 'employee'),
+        (19, 'Suki', '苏强', 'Creative', '摄影/摄像师', 'Ali', 'employee'),
+        (20, 'Sheikh', '刘石洪', 'Creative', '3D设计', 'Ali', 'employee'),
+        (21, 'Neil', '周颖强', 'Creative', '包装设计', 'Ali', 'employee'),
+        (22, 'Chris', '陈仁福', 'Business Management', '亚马逊运营经理', 'Ali', 'employee'),
+        (23, 'Jemmy', '姚满杰', 'Business Management', '亚马逊运营', 'Chris', 'employee'),
+        (24, 'Jack', '余德洋', 'Business Management', '亚马逊运营', 'Chris', 'employee'),
+        (25, 'Catherine', '赵玲玲', 'Business Management', 'Etsy运营', 'Ali', 'employee'),
+        (26, 'Sophie', '董小芙', 'Business Management', '商务拓展及销售经理', 'Mursal', 'employee'),
+        (27, 'Jocelyn', '朱瑾', 'Petra Spark', '业务销售', 'Ali', 'employee'),
+        (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee'),
+        (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee'),
     ]
     for e in employees:
+        pw = secrets.token_urlsafe(10)
         db.execute(
             "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role) VALUES (?,?,?,?,?,?,?,?)",
-            (e[0], e[1], e[2], generate_password_hash(e[7]), e[3], e[4], e[5], e[6])
+            (e[0], e[1], e[2], generate_password_hash(pw), e[3], e[4], e[5], e[6])
         )
+        print(f"[Seed] {e[1]} -> password: {pw}")
     db.commit()
 
 # ========== Auth Helpers ==========
@@ -238,18 +262,14 @@ def _get_sub_admin_permissions(db, user_id):
     return None
 
 def _resolve_user(token):
-    """Resolve token to user row (regular users or sub_admins). Returns (user_dict, user_type)
-    Regular users: token = str(user_id)
-    Sub-admins: token = 'sa:' + str(sub_admin_id)
+    """Resolve HMAC-signed token to user row. Returns (user_dict, user_type) or (None, None).
+    Token format: 'u:<user_id>:<hmac_sig>' or 'sa:<sub_admin_id>:<hmac_sig>'
     """
     db = get_db()
 
     # Sub-admin token: prefix "sa:"
-    if token.startswith('sa:'):
-        try:
-            sid = int(token[3:])
-        except (ValueError, TypeError):
-            return None, None
+    sid = _verify_token(token, 'sa')
+    if sid is not None:
         sub = db.execute("SELECT * FROM sub_admins WHERE id=? AND status='active'", (sid,)).fetchone()
         if sub:
             d = dict(sub)
@@ -263,14 +283,12 @@ def _resolve_user(token):
             return d, 'sub_admin'
         return None, None
 
-    # Regular user token
-    try:
-        uid = int(token)
-    except (ValueError, TypeError):
-        return None, None
-    user = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
-    if user:
-        return dict(user), 'user'
+    # Regular user token: prefix "u:"
+    uid = _verify_token(token, 'u')
+    if uid is not None:
+        user = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
+        if user:
+            return dict(user), 'user'
     return None, None
 
 def require_auth(f):
@@ -344,7 +362,7 @@ def login():
     user = db.execute("SELECT * FROM users WHERE en_name=? AND status='active'", (en_name,)).fetchone()
     if user and check_password_hash(user['password_hash'], password):
         return jsonify({
-            'token': str(user['id']),
+            'token': _sign_token('u', user['id']),
             'user': {
                 'id': user['id'], 'en_name': user['en_name'], 'ch_name': user['ch_name'],
                 'department': user['department'], 'position': user['position'],
@@ -358,7 +376,7 @@ def login():
     if sub and check_password_hash(sub['password_hash'], password):
         perms = json.loads(sub['permissions']) if sub['permissions'] else {}
         return jsonify({
-            'token': 'sa:' + str(sub['id']),
+            'token': _sign_token('sa', sub['id']),
             'user': {
                 'id': sub['id'], 'en_name': sub['en_name'], 'ch_name': sub['ch_name'],
                 'department': '', 'position': '子管理员',
@@ -402,8 +420,8 @@ def change_password():
     data = request.get_json()
     old_pw = data.get('old_password', '')
     new_pw = data.get('new_password', '')
-    if len(new_pw) < 6:
-        return jsonify({'error': '新密码至少6位'}), 400
+    if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
+        return jsonify({'error': '密码至少8位，需含字母和数字'}), 400
     db = get_db()
 
     if g.user_type == 'sub_admin':
@@ -808,8 +826,8 @@ def create_sub_admin():
 
     if not en_name or not password:
         return jsonify({'error': '英文名和密码不能为空'}), 400
-    if len(password) < 6:
-        return jsonify({'error': '密码至少6位'}), 400
+    if len(password) < 8 or not re.search(r'[A-Za-z]', password) or not re.search(r'[0-9]', password):
+        return jsonify({'error': '密码至少8位，需含字母和数字'}), 400
 
     db = get_db()
     # Check count limit
