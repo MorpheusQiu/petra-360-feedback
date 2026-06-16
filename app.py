@@ -230,13 +230,16 @@ def seed_users(db):
         (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee'),
     ]
     for e in employees:
-        pw = secrets.token_urlsafe(10)
+        pw = os.environ.get('INIT_DEFAULT_PASSWORD') or secrets.token_urlsafe(10)
         db.execute(
             "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role) VALUES (?,?,?,?,?,?,?,?)",
             (e[0], e[1], e[2], generate_password_hash(pw), e[3], e[4], e[5], e[6])
         )
-        print(f"[Seed] {e[1]} -> password: {pw}")
+        print(f"[Seed] {e[1]} seeded.")
     db.commit()
+    env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
+    if env_pw:
+        print(f"[Seed] All {len(employees)} users seeded with default password.")
 
 # ========== Auth Helpers ==========
 def get_auth_token():
