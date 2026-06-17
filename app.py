@@ -110,13 +110,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_admin_logs_operator ON admin_logs(operator_id);
         CREATE INDEX IF NOT EXISTS idx_admin_logs_target ON admin_logs(target_id);
-    ''')
-
-    # Migration: add admin_level column if not exists (for existing databases)
-    try:
-        db.execute("ALTER TABLE users ADD COLUMN admin_level TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass  # column already exists
 
         CREATE TABLE IF NOT EXISTS dim1_peer (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,6 +196,12 @@ def init_db():
         );
     ''')
     db.commit()
+
+    # Migration: add admin_level column if not exists (for existing databases)
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN admin_level TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
     # Migrate: add lang column if not exists
     try:
