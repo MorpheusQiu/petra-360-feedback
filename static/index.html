@@ -464,6 +464,36 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
   </div>
 </div>
 
+<!-- Permission edit confirmation modal -->
+<div class="modal-overlay" id="modal-permission-edit">
+  <div class="modal">
+    <h3 data-i18n="edit_admin_level">修改管理员权限</h3>
+    <div id="perm-alert"></div>
+    <div class="form-group">
+      <label data-i18n="target_admin">目标管理员</label>
+      <input type="text" id="perm-target-name" readonly style="background:var(--bg);">
+    </div>
+    <div class="form-group">
+      <label data-i18n="admin_level_label">管理员级别</label>
+      <select id="perm-new-level" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+        <option value="super_admin" data-i18n="level_super_admin">超级管理员 — 拥有系统最高权限</option>
+        <option value="admin" data-i18n="level_admin">普通管理员 — 拥有管理后台全部功能</option>
+        <option value="" data-i18n="level_remove">移除管理员权限 — 降级为普通员工</option>
+      </select>
+    </div>
+    <div class="form-group" id="perm-confirm-group" style="display:none;">
+      <label style="color:#d93025;font-weight:bold;" data-i18n="confirm_action">⚠️ 请确认此操作</label>
+      <div style="padding:8px;background:#fce8e6;border-radius:6px;font-size:13px;color:#c5221f;">
+        <span data-i18n="perm_change_warning">此操作将立即生效，并记录到操作日志中。请谨慎操作。</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closePermModal()"><span data-i18n="cancel">取消</span></button>
+      <button class="btn btn-primary" id="btn-confirm-perm" onclick="confirmPermChange()" disabled><span data-i18n="confirm_change">确认修改</span></button>
+    </div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 
 <script>
