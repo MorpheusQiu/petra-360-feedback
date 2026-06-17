@@ -73,6 +73,7 @@ def init_db():
             manager_en TEXT,
             manager_ch TEXT,
             role TEXT DEFAULT 'employee',
+            admin_level TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             can_edit BOOLEAN DEFAULT 0,
             lang TEXT DEFAULT 'zh',
@@ -90,6 +91,32 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operator_id INTEGER NOT NULL,
+            operator_name TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            target_name TEXT NOT NULL,
+            action TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            detail TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (operator_id) REFERENCES users(id),
+            FOREIGN KEY (target_id) REFERENCES users(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_admin_logs_operator ON admin_logs(operator_id);
+        CREATE INDEX IF NOT EXISTS idx_admin_logs_target ON admin_logs(target_id);
+    ''')
+
+    # Migration: add admin_level column if not exists (for existing databases)
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN admin_level TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
         CREATE TABLE IF NOT EXISTS dim1_peer (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,48 +225,53 @@ def init_db():
 def seed_users(db):
     """Initialize database with default employees. Each gets a unique random password."""
     employees = [
-        # id, en_name, ch_name, department, position, manager_en, role
-        (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin'),
-        (2, 'Ali', 'Ali Kaaba', 'Top Management', '管理层', '', 'admin'),
-        (3, 'Rita', '施利静', 'Top Management', '管理层', '', 'admin'),
-        (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee'),
-        (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee'),
-        (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin'),
-        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee'),
-        (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee'),
-        (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee'),
-        (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee'),
-        (11, 'Summer', '张萍', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee'),
-        (12, 'Kylie', '张影影', 'Supply Chain Management', '供应链专员', 'Rita', 'employee'),
-        (13, 'Vanessa', '陈茂', 'Supply Chain Management', '产品专员', 'Rita', 'employee'),
-        (14, 'Linda', '谢金光', 'Supply Chain Management', '物流专员', 'Rita', 'employee'),
-        (15, 'Jun', '穆世俊', 'Supply Chain Management', '操作师', 'Rita', 'employee'),
-        (16, 'Ming', '薛佳明', 'Supply Chain Management', '操作员', 'Rita', 'employee'),
-        (17, 'Frank', '潘绍兴', 'Supply Chain Management', '仓管', 'Rita', 'employee'),
-        (18, 'Jim', '刘金', 'Supply Chain Management', '仓管', 'Rita', 'employee'),
-        (19, 'Suki', '苏强', 'Creative', '摄影/摄像师', 'Ali', 'employee'),
-        (20, 'Sheikh', '刘石洪', 'Creative', '3D设计', 'Ali', 'employee'),
-        (21, 'Neil', '周颖强', 'Creative', '包装设计', 'Ali', 'employee'),
-        (22, 'Chris', '陈仁福', 'Business Management', '亚马逊运营经理', 'Ali', 'employee'),
-        (23, 'Jemmy', '姚满杰', 'Business Management', '亚马逊运营', 'Chris', 'employee'),
-        (24, 'Jack', '余德洋', 'Business Management', '亚马逊运营', 'Chris', 'employee'),
-        (25, 'Catherine', '赵玲玲', 'Business Management', 'Etsy运营', 'Ali', 'employee'),
-        (26, 'Sophie', '董小芙', 'Business Management', '商务拓展及销售经理', 'Mursal', 'employee'),
-        (27, 'Jocelyn', '朱瑾', 'Petra Spark', '业务销售', 'Ali', 'employee'),
-        (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee'),
-        (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee'),
+        # id, en_name, ch_name, department, position, manager_en, role, admin_level
+        (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin', 'admin'),
+        (2, 'Ali', 'Ali Kaaba', 'Top Management', '管理层', '', 'admin', 'admin'),
+        (3, 'Rita', '施利静', 'Top Management', '管理层', '', 'admin', 'admin'),
+        (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee', ''),
+        (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee', ''),
+        (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin', 'super_admin'),
+        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee', ''),
+        (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee', ''),
+        (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee', ''),
+        (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', ''),
+        (11, 'Summer', '张萍', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', ''),
+        (12, 'Kylie', '张影影', 'Supply Chain Management', '供应链专员', 'Rita', 'employee', ''),
+        (13, 'Vanessa', '陈茂', 'Supply Chain Management', '产品专员', 'Rita', 'employee', ''),
+        (14, 'Linda', '谢金光', 'Supply Chain Management', '物流专员', 'Rita', 'employee', ''),
+        (15, 'Jun', '穆世俊', 'Supply Chain Management', '操作师', 'Rita', 'employee', ''),
+        (16, 'Ming', '薛佳明', 'Supply Chain Management', '操作员', 'Rita', 'employee', ''),
+        (17, 'Frank', '潘绍兴', 'Supply Chain Management', '仓管', 'Rita', 'employee', ''),
+        (18, 'Jim', '刘金', 'Supply Chain Management', '仓管', 'Rita', 'employee', ''),
+        (19, 'Suki', '苏强', 'Creative', '摄影/摄像师', 'Ali', 'employee', ''),
+        (20, 'Sheikh', '刘石洪', 'Creative', '3D设计', 'Ali', 'employee', ''),
+        (21, 'Neil', '周颖强', 'Creative', '包装设计', 'Ali', 'employee', ''),
+        (22, 'Chris', '陈仁福', 'Business Management', '亚马逊运营经理', 'Ali', 'employee', ''),
+        (23, 'Jemmy', '姚满杰', 'Business Management', '亚马逊运营', 'Chris', 'employee', ''),
+        (24, 'Jack', '余德洋', 'Business Management', '亚马逊运营', 'Chris', 'employee', ''),
+        (25, 'Catherine', '赵玲玲', 'Business Management', 'Etsy运营', 'Ali', 'employee', ''),
+        (26, 'Sophie', '董小芙', 'Business Management', '商务拓展及销售经理', 'Mursal', 'employee', ''),
+        (27, 'Jocelyn', '朱瑾', 'Petra Spark', '业务销售', 'Ali', 'employee', ''),
+        (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee', ''),
+        (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', ''),
     ]
     for e in employees:
         pw = os.environ.get('INIT_DEFAULT_PASSWORD') or secrets.token_urlsafe(10)
         db.execute(
-            "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role) VALUES (?,?,?,?,?,?,?,?)",
-            (e[0], e[1], e[2], generate_password_hash(pw), e[3], e[4], e[5], e[6])
+            "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role, admin_level) VALUES (?,?,?,?,?,?,?,?,?)",
+            (e[0], e[1], e[2], generate_password_hash(pw), e[3], e[4], e[5], e[6], e[7])
         )
         print(f"[Seed] {e[1]} seeded.")
     db.commit()
     env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     if env_pw:
         print(f"[Seed] All {len(employees)} users seeded with default password.")
+
+    # Ensure admin_level is set for existing admin users (idempotent)
+    db.execute("UPDATE users SET admin_level='super_admin' WHERE en_name='Morpheus' AND role='admin' AND (admin_level='' OR admin_level IS NULL)")
+    db.execute("UPDATE users SET admin_level='admin' WHERE en_name IN ('Mursal','Ali','Rita') AND role='admin' AND (admin_level='' OR admin_level IS NULL)")
+    db.commit()
 
 # ========== Auth Helpers ==========
 def get_auth_token():
@@ -338,6 +370,21 @@ def require_main_admin(f):
         return f(*args, **kwargs)
     return decorated
 
+def require_super_admin(f):
+    """Require super_admin level — highest privilege tier"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = get_auth_token()
+        if not token:
+            return jsonify({'error': '未登录'}), 401
+        user, utype = _resolve_user(token)
+        if not user or user.get('admin_level') != 'super_admin':
+            return jsonify({'error': '仅超级管理员可操作'}), 403
+        g.user = user
+        g.user_type = utype
+        return f(*args, **kwargs)
+    return decorated
+
 # ========== Init ==========
 init_db()
 
@@ -370,7 +417,7 @@ def login():
                 'id': user['id'], 'en_name': user['en_name'], 'ch_name': user['ch_name'],
                 'department': user['department'], 'position': user['position'],
                 'manager_en': user['manager_en'], 'manager_ch': user['manager_ch'],
-                'role': user['role'], 'lang': user['lang'] or 'zh'
+                'role': user['role'], 'admin_level': user['admin_level'] or '', 'lang': user['lang'] or 'zh'
             }
         })
 
@@ -404,6 +451,7 @@ def get_me():
         'department': u.get('department', ''), 'position': u.get('position', ''),
         'manager_en': u.get('manager_en', ''), 'manager_ch': u.get('manager_ch', ''),
         'role': u['role'],
+        'admin_level': u.get('admin_level', ''),
         'can_edit': bool(u.get('can_edit', False)),
         'can_submit': can_submit,
         'lang': u.get('lang', 'zh'),
@@ -1062,6 +1110,94 @@ def get_status():
     if token:
         status['dim4'] = db.execute("SELECT COUNT(*) FROM dim4_leadership WHERE anonymous_token=? AND submitted=1", (token,)).fetchone()[0]
     return jsonify(status)
+
+# ========== Super Admin: Admin Role Management ==========
+def _log_admin_action(db, operator, target_id, target_name, action, old_value, new_value, detail=''):
+    """Record an admin permission change to the operation log."""
+    db.execute(
+        "INSERT INTO admin_logs (operator_id, operator_name, target_id, target_name, action, old_value, new_value, detail) VALUES (?,?,?,?,?,?,?,?)",
+        (operator['id'], operator['en_name'], target_id, target_name, action, old_value, new_value, detail)
+    )
+    db.commit()
+
+@app.route('/api/admin/manage-admins', methods=['GET'])
+@require_super_admin
+def list_manageable_admins():
+    """List all users with admin role for super admin management."""
+    db = get_db()
+    admins = db.execute('''
+        SELECT id, en_name, ch_name, department, position, role, admin_level, status, created_at
+        FROM users WHERE role='admin' AND status='active'
+        ORDER BY CASE admin_level
+            WHEN 'super_admin' THEN 0
+            WHEN 'admin' THEN 1
+            ELSE 2
+        END, id
+    ''').fetchall()
+    return jsonify([dict(a) for a in admins])
+
+@app.route('/api/admin/manage-admins/<int:target_id>', methods=['PUT'])
+@require_super_admin
+def update_admin_level(target_id):
+    """Update an admin's privilege level. Only super_admin can call this."""
+    db = get_db()
+    operator = g.user
+
+    # Prevent self-demotion
+    if target_id == operator['id']:
+        return jsonify({'error': '不能修改自己的管理员级别'}), 400
+
+    target = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (target_id,)).fetchone()
+    if not target:
+        return jsonify({'error': '目标用户不存在或已禁用'}), 404
+    if target['role'] != 'admin':
+        return jsonify({'error': '目标用户不是管理员'}), 400
+
+    data = request.get_json()
+    new_level = data.get('admin_level', '').strip()
+    if new_level not in ('super_admin', 'admin', ''):
+        return jsonify({'error': '无效的管理员级别。可选: super_admin, admin, 或留空（移除管理员权限）'}), 400
+
+    old_level = target['admin_level'] or 'admin'  # treat empty legacy as admin
+
+    # Prevent super_admin from downgrading another super_admin (only self-demotion blocked above)
+    # Actually super_admin CAN manage other super_admins — this is by design
+
+    level_labels = {'super_admin': '超级管理员', 'admin': '普通管理员', '': '移除管理员权限'}
+    detail = f"由 {operator['en_name']} 将 {target['en_name']} 的管理员级别从「{level_labels.get(old_level, old_level)}」修改为「{level_labels.get(new_level, new_level)}」"
+
+    db.execute("UPDATE users SET admin_level=? WHERE id=?", (new_level, target_id))
+
+    _log_admin_action(db, operator, target_id, target['en_name'], 'change_admin_level',
+                      old_level, new_level, detail)
+
+    return jsonify({
+        'message': '管理员权限已更新',
+        'target': {'id': target_id, 'en_name': target['en_name'], 'admin_level': new_level},
+        'detail': detail
+    })
+
+@app.route('/api/admin/operation-logs', methods=['GET'])
+@require_super_admin
+def get_operation_logs():
+    """Get admin permission change logs. Supports pagination."""
+    db = get_db()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    offset = (page - 1) * per_page
+
+    total = db.execute("SELECT COUNT(*) FROM admin_logs").fetchone()[0]
+    logs = db.execute('''
+        SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT ? OFFSET ?
+    ''', (per_page, offset)).fetchall()
+
+    return jsonify({
+        'logs': [dict(l) for l in logs],
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': max(1, (total + per_page - 1) // per_page)
+    })
 
 # ========== Run ==========
 if __name__ == '__main__':
