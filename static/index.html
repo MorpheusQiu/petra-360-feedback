@@ -223,6 +223,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
     <button class="nav-tab" data-tab="admin-dim4"><span data-i18n="admin_dim4">维度四：匿名领导力</span></button>
     <button class="nav-tab" data-tab="admin-users">👥 <span data-i18n="admin_users">人员管理</span></button>
     <button class="nav-tab" data-tab="admin-settings">⚙️ <span data-i18n="admin_settings">系统设置</span></button>
+    <button class="nav-tab" data-tab="admin-permissions" id="nav-admin-permissions" style="display:none;">🔐 <span data-i18n="admin_permissions">权限管理</span></button>
   </nav>
 
   <div class="main-content">
@@ -396,6 +397,28 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
         </div>
         <div class="section-body">
           <div id="sub-admin-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== SUPER ADMIN: Permissions Management ========== -->
+    <div id="page-admin-permissions" class="page">
+      <div class="section-card">
+        <div class="section-header">
+          <h3>🔐 <span data-i18n="admin_permissions">管理员权限管理</span></h3>
+          <span style="font-size:11px;color:var(--gray);" data-i18n="super_admin_badge">超级管理员</span>
+        </div>
+        <div class="section-body">
+          <div id="perm-admin-list"></div>
+        </div>
+      </div>
+
+      <!-- Operation Logs -->
+      <div class="section-card" style="margin-top:20px;">
+        <div class="section-header"><h3>📋 <span data-i18n="op_log_title">操作日志</span></h3></div>
+        <div class="section-body">
+          <div id="perm-log-list"></div>
+          <div id="perm-log-pagination" style="text-align:center;margin-top:12px;"></div>
         </div>
       </div>
     </div>
@@ -659,7 +682,31 @@ const I18N = {
     invalid_dim: '无效维度',
     missing_anon: '缺少匿名标识',
     lang_unsupported: '不支持的语言',
-    lang_saved: '语言设置已保存'
+    lang_saved: '语言设置已保存',
+    // Super Admin: Permission Management
+    admin_permissions: '权限管理',
+    super_admin_badge: '超级管理员',
+    admin_level_label: '管理员级别',
+    target_admin: '目标管理员',
+    edit_admin_level: '修改管理员权限',
+    level_super_admin: '超级管理员 — 拥有系统最高权限',
+    level_admin: '普通管理员 — 拥有管理后台全部功能',
+    level_remove: '移除管理员权限 — 降级为普通员工',
+    confirm_change: '确认修改',
+    confirm_action: '⚠️ 请确认此操作',
+    perm_change_warning: '此操作将立即生效，并记录到操作日志中。请谨慎操作。',
+    op_log_title: '操作日志',
+    op_log_time: '操作时间',
+    op_log_operator: '操作人',
+    op_log_target: '目标',
+    op_log_action: '操作',
+    op_log_detail: '详情',
+    no_op_logs: '暂无操作日志',
+    perm_updated: '权限修改成功',
+    perm_self_error: '不能修改自己的管理员级别',
+    perm_load_error: '加载管理员列表失败',
+    prev_page: '上一页',
+    next_page: '下一页',
   },
   en: {
     login_title: 'Petra Brands China',
@@ -874,7 +921,31 @@ const I18N = {
     invalid_dim: 'Invalid dimension',
     missing_anon: 'Missing anonymous token',
     lang_unsupported: 'Language not supported',
-    lang_saved: 'Language preference saved'
+    lang_saved: 'Language preference saved',
+    // Super Admin: Permission Management
+    admin_permissions: 'Permission Management',
+    super_admin_badge: 'Super Admin',
+    admin_level_label: 'Admin Level',
+    target_admin: 'Target Admin',
+    edit_admin_level: 'Edit Admin Level',
+    level_super_admin: 'Super Admin — Highest system privilege',
+    level_admin: 'Admin — Full admin panel access',
+    level_remove: 'Remove Admin — Demote to employee',
+    confirm_change: 'Confirm Change',
+    confirm_action: '⚠️ Please confirm this action',
+    perm_change_warning: 'This change takes effect immediately and will be logged. Please proceed with caution.',
+    op_log_title: 'Operation Logs',
+    op_log_time: 'Time',
+    op_log_operator: 'Operator',
+    op_log_target: 'Target',
+    op_log_action: 'Action',
+    op_log_detail: 'Details',
+    no_op_logs: 'No operation logs yet',
+    perm_updated: 'Permission updated successfully',
+    perm_self_error: 'Cannot modify your own admin level',
+    perm_load_error: 'Failed to load admin list',
+    prev_page: 'Previous',
+    next_page: 'Next',
   }
 };
 
@@ -1068,6 +1139,9 @@ function switchRole(role) {
   } else {
     document.getElementById('emp-nav').style.display = 'none';
     document.getElementById('admin-nav').style.display = 'flex';
+    // Show/hide permissions tab based on admin_level
+    const permTab = document.getElementById('nav-admin-permissions');
+    if (permTab) permTab.style.display = (currentUser.admin_level === 'super_admin') ? '' : 'none';
     document.querySelectorAll('#admin-nav .nav-tab').forEach((t,i) => t.classList.toggle('active', i === 0));
     switchTab('admin-dashboard');
   }
@@ -1098,6 +1172,7 @@ function switchTab(tabId) {
     else if (tabId.startsWith('admin-dim')) loadAdminSubmissions(tabId.replace('admin-',''));
     else if (tabId === 'admin-users') loadAdminUsers();
     else if (tabId === 'admin-settings') { loadAdminSettings(); if (currentUser.role === 'admin') loadSubAdmins(); }
+    else if (tabId === 'admin-permissions') { loadAdminPermissions(); loadOperationLogs(); }
   }
 }
 
@@ -1717,6 +1792,136 @@ async function deleteSubAdmin(sid) {
     showToast(t('sub_admin_deleted'), 'success');
     loadSubAdmins();
   } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ============ SUPER ADMIN: Permission Management ============
+let permTargetId = null;
+let permTargetOldLevel = '';
+
+async function loadAdminPermissions() {
+  if (!currentUser || currentUser.admin_level !== 'super_admin') return;
+  try {
+    const admins = await api('/api/admin/manage-admins');
+    const container = document.getElementById('perm-admin-list');
+    if (!admins || admins.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray);">${t('no_data_records')}</div>`;
+      return;
+    }
+    const levelBadge = (level) => {
+      if (level === 'super_admin') return `<span style="background:#fce8e6;color:#c5221f;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">🔑 ${t('level_super_admin').split(' —')[0]}</span>`;
+      if (level === 'admin') return `<span style="background:#e8f0fe;color:#1967d2;padding:2px 8px;border-radius:10px;font-size:11px;">👤 ${t('level_admin').split(' —')[0]}</span>`;
+      return `<span style="background:#f1f3f4;color:#5f6368;padding:2px 8px;border-radius:10px;font-size:11px;">—</span>`;
+    };
+    container.innerHTML = admins.map(a => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <div style="flex:1;min-width:200px;">
+          <strong>${esc(a.en_name)}</strong> ${a.ch_name ? `(${esc(a.ch_name)})` : ''}
+          <span style="margin-left:8px;">${levelBadge(a.admin_level)}</span>
+          <div style="font-size:11px;color:var(--gray);margin-top:4px;">${esc(a.department || '')} · ${esc(a.position || '')}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm btn-outline" onclick="editPermLevel(${a.id},'${esc(a.en_name)}','${esc(a.admin_level || 'admin')}')">✏️ <span data-i18n="edit">编辑</span></button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { showToast(t('perm_load_error'), 'error'); }
+}
+
+function editPermLevel(id, enName, currentLevel) {
+  if (id === currentUser.id) {
+    showToast(t('perm_self_error'), 'error');
+    return;
+  }
+  permTargetId = id;
+  permTargetOldLevel = currentLevel || 'admin';
+  document.getElementById('perm-target-name').value = enName;
+  document.getElementById('perm-new-level').value = permTargetOldLevel;
+  document.getElementById('perm-alert').innerHTML = '';
+  document.getElementById('perm-confirm-group').style.display = 'none';
+  document.getElementById('btn-confirm-perm').disabled = false;
+  document.getElementById('modal-permission-edit').classList.add('show');
+
+  // Add change listener for confirm step
+  const select = document.getElementById('perm-new-level');
+  select.onchange = function() {
+    if (select.value !== permTargetOldLevel) {
+      document.getElementById('perm-confirm-group').style.display = 'block';
+    } else {
+      document.getElementById('perm-confirm-group').style.display = 'none';
+    }
+  };
+}
+
+function closePermModal() {
+  document.getElementById('modal-permission-edit').classList.remove('show');
+  permTargetId = null;
+}
+
+async function confirmPermChange() {
+  const newLevel = document.getElementById('perm-new-level').value;
+  if (!permTargetId || newLevel === permTargetOldLevel) {
+    closePermModal();
+    return;
+  }
+  try {
+    const resp = await api(`/api/admin/manage-admins/${permTargetId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ admin_level: newLevel })
+    });
+    showToast(t('perm_updated'), 'success');
+    closePermModal();
+    loadAdminPermissions();
+    loadOperationLogs();
+  } catch(e) {
+    document.getElementById('perm-alert').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+  }
+}
+
+async function loadOperationLogs(page = 1) {
+  if (!currentUser || currentUser.admin_level !== 'super_admin') return;
+  try {
+    const data = await api(`/api/admin/operation-logs?page=${page}&per_page=10`);
+    const container = document.getElementById('perm-log-list');
+    if (!data.logs || data.logs.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray);">${t('no_op_logs')}</div>`;
+      document.getElementById('perm-log-pagination').innerHTML = '';
+      return;
+    }
+    const actionLabels = {
+      'change_admin_level': t('edit_admin_level')
+    };
+    container.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:var(--bg);">
+          <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">${t('op_log_time')}</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">${t('op_log_operator')}</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">${t('op_log_target')}</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">${t('op_log_action')}</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">${t('op_log_detail')}</th>
+        </tr></thead>
+        <tbody>${data.logs.map(l => `
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px;white-space:nowrap;">${new Date(l.created_at).toLocaleString()}</td>
+            <td style="padding:8px;">${esc(l.operator_name)}</td>
+            <td style="padding:8px;">${esc(l.target_name)}</td>
+            <td style="padding:8px;">${actionLabels[l.action] || l.action}</td>
+            <td style="padding:8px;font-size:12px;color:var(--gray);">${esc(l.detail || '')}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`;
+
+    // Pagination
+    const pag = document.getElementById('perm-log-pagination');
+    if (data.total_pages > 1) {
+      let html = '';
+      if (page > 1) html += `<button class="btn btn-sm btn-outline" onclick="loadOperationLogs(${page-1})">← ${t('prev_page')}</button> `;
+      html += `<span style="margin:0 8px;">${page} / ${data.total_pages}</span>`;
+      if (page < data.total_pages) html += ` <button class="btn btn-sm btn-outline" onclick="loadOperationLogs(${page+1})">${t('next_page')} →</button>`;
+      pag.innerHTML = html;
+    } else {
+      pag.innerHTML = '';
+    }
+  } catch(e) { /* silent */ }
 }
 
 // ============ MODALS ============
