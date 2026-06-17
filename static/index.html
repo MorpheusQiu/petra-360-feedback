@@ -1531,7 +1531,7 @@ async function loadAdminSubmissions(dim) {
 async function loadAdminUsers() {
   try {
     const data = await api('/api/admin/users');
-    const t = document.getElementById('admin-users-table');
+    const table = document.getElementById('admin-users-table');
     const depts = [...new Set(data.map(u => u.department))];
     const sel = document.getElementById('admin-user-filter-dept');
     const allDeptLabel = t('all_depts');
