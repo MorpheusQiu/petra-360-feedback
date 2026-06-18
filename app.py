@@ -41,7 +41,7 @@ def _verify_token(token, expected_prefix):
     return None
 
 DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get('DB_PATH', os.path.join(DB_DIR, 'feedback.db'))
+DB_PATH = os.environ.get('DB_PATH') or os.path.join(DB_DIR, 'feedback.db')
 os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
 
 # Track DB creation to detect cold-start re-seeding
