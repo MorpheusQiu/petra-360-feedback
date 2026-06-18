@@ -457,42 +457,53 @@ def index():
 # ========== Auth API ==========
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    en_name = data.get('en_name', '').strip()
-    password = data.get('password', '').strip()
-    if not en_name or not password:
-        return jsonify({'error': '请输入英文名和密码'}), 400
-    db = get_db()
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({'error': '请发送 JSON 格式请求'}), 400
+        en_name = data.get('en_name', '').strip()
+        password = data.get('password', '').strip()
+        if not en_name or not password:
+            return jsonify({'error': '请输入英文名和密码'}), 400
+        db = get_db()
 
-    # Try regular users first
-    user = db.execute("SELECT * FROM users WHERE en_name=? AND status='active'", (en_name,)).fetchone()
-    if user and check_password_hash(user['password_hash'], password):
+        # Try regular users first
+        user = db.execute("SELECT * FROM users WHERE en_name=? AND status='active'", (en_name,)).fetchone()
+        if user and check_password_hash(user['password_hash'], password):
+            return jsonify({
+                'token': _sign_token('u', user['id']),
+                'user': {
+                    'id': user['id'], 'en_name': user['en_name'], 'ch_name': user['ch_name'],
+                    'department': user['department'], 'position': user['position'],
+                    'manager_en': user['manager_en'], 'manager_ch': user['manager_ch'],
+                    'role': user['role'], 'admin_level': user['admin_level'] or '', 'lang': user['lang'] or 'zh'
+                }
+            })
+
+        # Try sub_admins
+        sub = db.execute("SELECT * FROM sub_admins WHERE en_name=? AND status='active'", (en_name,)).fetchone()
+        if sub and check_password_hash(sub['password_hash'], password):
+            perms = json.loads(sub['permissions']) if sub['permissions'] else {}
+            return jsonify({
+                'token': _sign_token('sa', sub['id']),
+                'user': {
+                    'id': sub['id'], 'en_name': sub['en_name'], 'ch_name': sub['ch_name'],
+                    'department': '', 'position': '子管理员',
+                    'manager_en': '', 'manager_ch': '',
+                    'role': 'sub_admin', 'lang': 'zh',
+                    'sub_permissions': perms
+                }
+            })
+
+        return jsonify({'error': '英文名或密码错误'}), 401
+    except Exception as e:
+        import traceback, sys
+        tb = traceback.format_exc()
+        print(f'[LOGIN ERROR] {e}\n{tb}', file=sys.stderr, flush=True)
         return jsonify({
-            'token': _sign_token('u', user['id']),
-            'user': {
-                'id': user['id'], 'en_name': user['en_name'], 'ch_name': user['ch_name'],
-                'department': user['department'], 'position': user['position'],
-                'manager_en': user['manager_en'], 'manager_ch': user['manager_ch'],
-                'role': user['role'], 'admin_level': user['admin_level'] or '', 'lang': user['lang'] or 'zh'
-            }
-        })
-
-    # Try sub_admins
-    sub = db.execute("SELECT * FROM sub_admins WHERE en_name=? AND status='active'", (en_name,)).fetchone()
-    if sub and check_password_hash(sub['password_hash'], password):
-        perms = json.loads(sub['permissions']) if sub['permissions'] else {}
-        return jsonify({
-            'token': _sign_token('sa', sub['id']),
-            'user': {
-                'id': sub['id'], 'en_name': sub['en_name'], 'ch_name': sub['ch_name'],
-                'department': '', 'position': '子管理员',
-                'manager_en': '', 'manager_ch': '',
-                'role': 'sub_admin', 'lang': 'zh',
-                'sub_permissions': perms
-            }
-        })
-
-    return jsonify({'error': '英文名或密码错误'}), 401
+            'error': f'服务器内部错误: {str(e)}',
+            'debug_trace': tb.split('\n')[-3:] if app.debug else None
+        }), 500
 
 @app.route('/api/me', methods=['GET'])
 @require_auth
