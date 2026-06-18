@@ -66,6 +66,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
 .nav-tab.active { color:var(--primary); font-weight:700; border-bottom-color:var(--primary); }
 .nav-tab .badge { display:inline-block; background:var(--success); color:white; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; }
 .nav-tab .badge.warn { background:var(--warning); }
+.nav-tab .badge.mandatory { background:var(--danger); font-size:10px; padding:1px 5px; }
 
 /* ====== MAIN CONTENT ====== */
 .main-content { max-width:1200px; margin:0 auto; padding:24px; }
@@ -209,8 +210,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
   <!-- ===== EMPLOYEE NAV ===== -->
   <nav id="emp-nav" class="nav-tabs" style="display:none;">
     <button class="nav-tab active" data-tab="dim1"><span data-i18n="dim1_tab">维度一：员工互评</span> <span class="badge" id="badge-dim1"></span></button>
-    <button class="nav-tab" data-tab="dim2"><span data-i18n="dim2_tab">维度二：对上级反馈</span> <span class="badge" id="badge-dim2"></span></button>
-    <button class="nav-tab" data-tab="dim3"><span data-i18n="dim3_tab">维度三：上级对下级</span> <span class="badge" id="badge-dim3"></span></button>
+    <button class="nav-tab" data-tab="dim2"><span data-i18n="dim2_tab">维度二：对上级反馈</span> <span class="badge mandatory" data-i18n="mandatory_short">必填</span> <span class="badge" id="badge-dim2"></span></button>
+    <button class="nav-tab" data-tab="dim3"><span data-i18n="dim3_tab">维度三：上级对下级</span> <span class="badge mandatory" data-i18n="mandatory_short">必填</span> <span class="badge" id="badge-dim3"></span></button>
     <button class="nav-tab" data-tab="dim4"><span data-i18n="dim4_tab">维度四：匿名领导力</span> <span class="badge" id="badge-dim4"></span></button>
   </nav>
 
@@ -227,6 +228,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
   </nav>
 
   <div class="main-content">
+    <!-- Overall completion status bar (visible on all employee pages) -->
+    <div id="overall-status-bar" style="display:none; padding:12px 16px; margin-bottom:16px; border-radius:8px; font-size:14px;"></div>
+
     <!-- ========== EMPLOYEE: DIM1 ========== -->
     <div id="page-dim1" class="page">
       <div class="dim-desc" data-i18n="dim1_desc"><strong>维度一：员工互评（同级反馈）</strong> — 请基于日常工作实际协作体验，对每一位有协作关系的同级同事进行评分。如无实际协作经验，可在对应维度选择"N/A"。</div>
@@ -600,6 +604,18 @@ const I18N = {
     dim1_peer_label: '互评',
     dim2_upward_label: '对上级',
     dim3_downward_label: '对下级',
+    // New: mandatory & auto-bind
+    mandatory_short: '必填',
+    overall_complete_label: '必修维度已完成',
+    overall_complete_msg: '维度二（对上级反馈）和维度三（上级对下级）均已提交，360反馈已纳入完成状态！',
+    overall_incomplete_label: '必修维度未完成',
+    dim3_pending_msg: '维度三（上级对下级）尚未提交，请尽快完成所有下属评价并提交。',
+    dim2_pending_msg: '维度二（对上级反馈）尚未提交，请尽快完成并提交。',
+    both_dim_pending_msg: '维度二（对上级反馈）和维度三（上级对下级）均为必填项，请完成并提交。',
+    dim2_no_manager: '系统中未找到您的直属上级信息。如需填写维度二，请联系HR更新您的上级信息。',
+    dim3_no_subordinates: '系统未检测到您的直接下属。如果您没有下属，维度三不适用于您，请忽略此项。',
+    dim3_auto_locked: '系统自动绑定的下属评价（不可删除）',
+    dim3_manual_entries: '手动添加的下属评价',
     no_records: '暂无评价记录',
     no_submissions: '暂无提交记录',
     no_records_anon: '暂无评价记录（您的身份完全匿名）',
@@ -839,6 +855,18 @@ const I18N = {
     dim1_peer_label: 'Peer',
     dim2_upward_label: 'Upward',
     dim3_downward_label: 'Downward',
+    // New: mandatory & auto-bind
+    mandatory_short: 'Required',
+    overall_complete_label: 'Mandatory Sections Complete',
+    overall_complete_msg: 'Both Dimension 2 (Upward Feedback) and Dimension 3 (Downward Feedback) have been submitted. Your 360 feedback is now complete!',
+    overall_incomplete_label: 'Mandatory Sections Incomplete',
+    dim3_pending_msg: 'Dimension 3 (Downward Feedback) has not been submitted. Please complete evaluations for all subordinates.',
+    dim2_pending_msg: 'Dimension 2 (Upward Feedback) has not been submitted. Please complete and submit.',
+    both_dim_pending_msg: 'Both Dimension 2 (Upward Feedback) and Dimension 3 (Downward Feedback) are mandatory. Please complete and submit both.',
+    dim2_no_manager: 'No direct manager found in the system. If you need to submit Dimension 2, please contact HR to update your manager info.',
+    dim3_no_subordinates: 'No direct subordinates detected. If you have no subordinates, Dimension 3 does not apply to you — please disregard.',
+    dim3_auto_locked: 'Auto-bound subordinate evaluations (cannot be deleted)',
+    dim3_manual_entries: 'Manually added subordinate evaluations',
     no_records: 'No records yet',
     no_submissions: 'No submissions yet',
     no_records_anon: 'No records yet (your identity is completely anonymous)',
@@ -1316,8 +1344,14 @@ async function loadDim2() {
   document.getElementById('dim2-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
   document.getElementById('dim2-dept').value = currentUser.department || '';
   document.getElementById('dim2-manager').value = currentUser.manager_en || '';
+  // Auto-create the single dim2 entry bound to the user's manager
   if (dim2Data.length === 0 && currentUser.manager_en) {
     dim2Data.push({ manager_name: currentUser.manager_en, score_goal_setting:0, score_communication:0, score_delegation:0, score_feedback:0, score_team_climate:0, score_fairness:0, strengths:'', improvements:'', suggestions:'', submitted:false });
+  }
+  // Lock: if the user has no manager, show a notice and disable submit
+  if (!currentUser.manager_en) {
+    document.getElementById('dim2-items').innerHTML = `<div class="empty-state"><div class="icon">ℹ️</div><p>${t('dim2_no_manager')}</p></div>`;
+    return;
   }
   renderDim2();
 }
@@ -1387,14 +1421,25 @@ async function loadDim3() {
 }
 function renderDim3() {
   const container = document.getElementById('dim3-items');
+  const autoItems = dim3Data.filter(i => i.auto_created);
+  const manualItems = dim3Data.filter(i => !i.auto_created);
   if (dim3Data.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('dim3_no_subordinates')}</p></div>`;
   } else {
-    container.innerHTML = dim3Data.map((item, idx) => renderDim3Item(item, idx)).join('');
+    let html = '';
+    if (autoItems.length > 0) {
+      html += `<div style="margin-bottom:8px;font-size:12px;color:var(--primary);">🔒 ${t('dim3_auto_locked')} (${autoItems.length})</div>`;
+      html += autoItems.map((item, idx) => renderDim3Item(item, dim3Data.indexOf(item), true)).join('');
+    }
+    if (manualItems.length > 0) {
+      html += `<div style="margin-top:16px;margin-bottom:8px;font-size:12px;color:var(--gray);">✏️ ${t('dim3_manual_entries')} (${manualItems.length})</div>`;
+      html += manualItems.map((item, idx) => renderDim3Item(item, dim3Data.indexOf(item), false)).join('');
+    }
+    container.innerHTML = html;
   }
   updateBadges();
 }
-function renderDim3Item(item, idx) {
+function renderDim3Item(item, idx, isLocked) {
   const scores = DIM3_DIMS.map((d,i) => `
     <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
       <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
@@ -1404,20 +1449,24 @@ function renderDim3Item(item, idx) {
   const sc = DIM3_DIMS.filter(d => (item[d]||0) > 0).length;
   const sm = DIM3_DIMS.reduce((s,d) => s + (item[d]||0), 0);
   const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
+  const nameDisplay = item.subordinate_name || t('new_eval');
+  const lockIcon = isLocked ? ' 🔒' : '';
+  const lockedAttr = isLocked ? 'readonly style="background:#f0f0f0;"' : '';
+  const deleteBtn = isLocked ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteDim3(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>`;
   return `
     <div class="section-card">
       <div class="section-header">
-        <h3>#${idx+1} ${item.subordinate_name || t('new_eval')}</h3>
+        <h3>#${idx+1} ${nameDisplay}${lockIcon}</h3>
         <div style="display:flex;align-items:center;gap:12px;">
           <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong></span>
           <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
-          <button class="btn btn-sm btn-danger" onclick="deleteDim3(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>
+          ${deleteBtn}
         </div>
       </div>
       <div class="section-body">
         <div class="info-row">
-          <div class="form-group"><label>${t('subordinate_name')}</label><input type="text" value="${esc(item.subordinate_name||'')}" onchange="updateDim3Field(${idx},'subordinate_name',this.value)"></div>
-          <div class="form-group"><label>${t('subordinate_position')}</label><input type="text" value="${esc(item.subordinate_position||'')}" onchange="updateDim3Field(${idx},'subordinate_position',this.value)"></div>
+          <div class="form-group"><label>${t('subordinate_name')}${isLocked?' 🔒':''}</label><input type="text" value="${esc(item.subordinate_name||'')}" ${lockedAttr} onchange="updateDim3Field(${idx},'subordinate_name',this.value)"></div>
+          <div class="form-group"><label>${t('subordinate_position')}</label><input type="text" value="${esc(item.subordinate_position||'')}" ${lockedAttr} onchange="updateDim3Field(${idx},'subordinate_position',this.value)"></div>
         </div>
         <table class="score-table">
           <thead><tr><th>${t('scoring_label')}</th>${DIM3_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
@@ -1582,10 +1631,40 @@ function updateBadges() {
   document.getElementById('badge-dim2').textContent = dim2Data.length > 0 ? `${d2}/${dim2Data.length}` : '';
   document.getElementById('badge-dim3').textContent = dim3Data.length > 0 ? `${d3}/${dim3Data.length}` : '';
   document.getElementById('badge-dim4').textContent = dim4Data.length > 0 ? `${d4}/${dim4Data.length}` : '';
-  document.getElementById('badge-dim1').className = d1 > 0 ? 'badge' : 'badge warn';
-  document.getElementById('badge-dim2').className = d2 > 0 ? 'badge' : 'badge warn';
-  document.getElementById('badge-dim3').className = d3 > 0 ? 'badge' : 'badge warn';
-  document.getElementById('badge-dim4').className = d4 > 0 ? 'badge' : 'badge warn';
+  document.getElementById('badge-dim1').className = d1 > 0 ? 'badge' : (dim1Data.length > 0 ? 'badge warn' : 'badge');
+  document.getElementById('badge-dim2').className = d2 > 0 ? 'badge' : (dim2Data.length > 0 ? 'badge warn' : 'badge');
+  document.getElementById('badge-dim3').className = d3 > 0 ? 'badge' : (dim3Data.length > 0 ? 'badge warn' : 'badge');
+  document.getElementById('badge-dim4').className = d4 > 0 ? 'badge' : (dim4Data.length > 0 ? 'badge warn' : 'badge');
+  // Overall mandatory completion status
+  const dim2Done = dim2Data.length > 0 && d2 > 0;
+  const dim3Done = dim3Data.length > 0 && d3 > 0;
+  const bar = document.getElementById('overall-status-bar');
+  if (!bar) return;
+  if (dim2Done && dim3Done) {
+    bar.style.display = 'block';
+    bar.style.background = '#DCFCE7';
+    bar.style.color = '#166534';
+    bar.style.border = '1px solid #BBF7D0';
+    bar.innerHTML = `✅ <strong>${t('overall_complete_label')}</strong> — ${t('overall_complete_msg')}`;
+  } else if (dim2Done && !dim3Done) {
+    bar.style.display = 'block';
+    bar.style.background = '#FEF3C7';
+    bar.style.color = '#92400E';
+    bar.style.border = '1px solid #FCD34D';
+    bar.innerHTML = `⚠️ <strong>${t('overall_incomplete_label')}</strong> — ${t('dim3_pending_msg')}`;
+  } else if (!dim2Done && dim3Done) {
+    bar.style.display = 'block';
+    bar.style.background = '#FEF3C7';
+    bar.style.color = '#92400E';
+    bar.style.border = '1px solid #FCD34D';
+    bar.innerHTML = `⚠️ <strong>${t('overall_incomplete_label')}</strong> — ${t('dim2_pending_msg')}`;
+  } else {
+    bar.style.display = 'block';
+    bar.style.background = '#FEE2E2';
+    bar.style.color = '#991B1B';
+    bar.style.border = '1px solid #FECACA';
+    bar.innerHTML = `❌ <strong>${t('overall_incomplete_label')}</strong> — ${t('both_dim_pending_msg')}`;
+  }
 }
 
 // ============ ADMIN ============

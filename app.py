@@ -44,6 +44,9 @@ DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get('DB_PATH', os.path.join(DB_DIR, 'feedback.db'))
 os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
 
+# Track DB creation to detect cold-start re-seeding
+_RECOVERY_INFO = None
+
 # ========== Database ==========
 import sqlite3
 
@@ -203,6 +206,13 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Migration: add auto_created column to dim3_downward for locked subordinate entries
+    try:
+        db.execute("ALTER TABLE dim3_downward ADD COLUMN auto_created BOOLEAN DEFAULT 0")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     # Migrate: add lang column if not exists
     try:
         db.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'zh'")
@@ -223,6 +233,7 @@ def init_db():
 
 def seed_users(db):
     """Initialize database with default employees. Each gets a unique random password."""
+    global _RECOVERY_INFO
     employees = [
         # id, en_name, ch_name, department, position, manager_en, role, admin_level
         (1, 'Mursal', 'Mursal Khedri', 'Top Management', '管理层', '', 'admin', 'admin'),
@@ -255,8 +266,10 @@ def seed_users(db):
         (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee', ''),
         (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', ''),
     ]
+    recovery_seeds = {}
     for e in employees:
         pw = os.environ.get('INIT_DEFAULT_PASSWORD') or secrets.token_urlsafe(10)
+        recovery_seeds[e[1]] = pw
         db.execute(
             "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role, admin_level) VALUES (?,?,?,?,?,?,?,?,?)",
             (e[0], e[1], e[2], generate_password_hash(pw), e[3], e[4], e[5], e[6], e[7])
@@ -265,7 +278,19 @@ def seed_users(db):
     db.commit()
     env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     if env_pw:
-        print(f"[Seed] All {len(employees)} users seeded with default password.")
+        print(f"[Seed] All {len(employees)} users seeded with default password from env var.")
+    else:
+        print("[Seed] ===== EMERGENCY RECOVERY — INITIAL PASSWORDS =====")
+        for name, pw in recovery_seeds.items():
+            print(f"  {name}: {pw}")
+        print("[Seed] ===== SAVE THESE PASSWORDS NOW =====")
+    _RECOVERY_INFO = {
+        'action': 'db_recreated',
+        'time': datetime.now().isoformat(),
+        'total_users': len(employees),
+        'default_pw_used': bool(env_pw),
+        'seeds': {} if env_pw else recovery_seeds
+    }
 
     # Ensure admin_level is set for existing admin users (idempotent)
     db.execute("UPDATE users SET admin_level='super_admin' WHERE en_name='Morpheus' AND role='admin' AND (admin_level='' OR admin_level IS NULL)")
@@ -392,6 +417,38 @@ init_db()
 def health_check():
     """健康检查端点 — 用于托管平台就绪探测 + 防休眠"""
     return jsonify({'status': 'ok', 'time': datetime.now().isoformat()})
+
+@app.route('/api/recovery-check')
+def recovery_check():
+    """Public endpoint: check if DB was recently recreated (no auth needed)."""
+    if _RECOVERY_INFO:
+        return jsonify({
+            'warning': True,
+            'message': '数据库已被重建（可能是平台冷启动导致）。所有用户密码已重置为新的随机密码。请查看 Render 日志获取初始密码，或使用 INIT_DEFAULT_PASSWORD 环境变量设置统一的默认密码。',
+            'message_en': 'Database has been recreated (likely due to platform cold start). All user passwords have been reset to new random values. Check Render logs for initial passwords, or set INIT_DEFAULT_PASSWORD env var for a uniform default.',
+            'recreated_at': _RECOVERY_INFO.get('time'),
+            'users_affected': _RECOVERY_INFO.get('total_users'),
+            'has_default_pw': _RECOVERY_INFO.get('default_pw_used', False)
+        })
+    return jsonify({'warning': False, 'message': '数据库状态正常'})
+
+@app.route('/api/db-info', methods=['GET'])
+@require_auth
+def db_info():
+    """Return database status. Super admin sees recovery info if DB was recreated."""
+    db = get_db()
+    user_count = db.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0]
+    db_file_exists = os.path.exists(DB_PATH)
+    db_file_size = os.path.getsize(DB_PATH) if db_file_exists else 0
+    resp = {
+        'db_path': DB_PATH,
+        'db_exists': db_file_exists,
+        'db_size_bytes': db_file_size,
+        'user_count': user_count
+    }
+    if g.user.get('admin_level') == 'super_admin' and _RECOVERY_INFO:
+        resp['recovery'] = _RECOVERY_INFO
+    return jsonify(resp)
 
 @app.route('/')
 def index():
@@ -521,6 +578,17 @@ def list_managers():
     mgrs = db.execute("SELECT DISTINCT en_name, ch_name FROM users WHERE en_name IN ('Mursal','Ali','Rita','Chris') OR role='admin' ORDER BY id").fetchall()
     return jsonify([dict(m) for m in mgrs])
 
+@app.route('/api/my-subordinates', methods=['GET'])
+@require_auth
+def get_my_subordinates():
+    """Return all employees whose manager_en matches the logged-in user's en_name."""
+    db = get_db()
+    subs = db.execute(
+        "SELECT id, en_name, ch_name, department, position FROM users WHERE manager_en=? AND status='active' AND id != ? ORDER BY id",
+        (g.user['en_name'], g.user['id'])
+    ).fetchall()
+    return jsonify([dict(s) for s in subs])
+
 # ========== Dimension 1: Peer Feedback ==========
 @app.route('/api/dim1', methods=['GET'])
 @require_auth
@@ -631,6 +699,22 @@ def save_dim2():
 @require_auth
 def get_dim3():
     db = get_db()
+    # Auto-create entries for subordinates who don't have records yet
+    existing_names = db.execute(
+        "SELECT subordinate_name FROM dim3_downward WHERE evaluator_id=?", (g.user['id'],)
+    ).fetchall()
+    existing_set = {r['subordinate_name'] for r in existing_names}
+    subordinates = db.execute(
+        "SELECT en_name, ch_name, position FROM users WHERE manager_en=? AND status='active' AND id != ?",
+        (g.user['en_name'], g.user['id'])
+    ).fetchall()
+    now = datetime.now().isoformat()
+    for sub in subordinates:
+        if sub['en_name'] not in existing_set:
+            db.execute('''INSERT INTO dim3_downward (evaluator_id, subordinate_name, subordinate_position,
+                auto_created, created_at, updated_at) VALUES (?,?,?,1,?,?)''',
+                (g.user['id'], sub['en_name'], sub['position'] or '', now, now))
+    db.commit()
     items = db.execute("SELECT * FROM dim3_downward WHERE evaluator_id=? ORDER BY id", (g.user['id'],)).fetchall()
     return jsonify([dict(i) for i in items])
 
@@ -845,6 +929,27 @@ def admin_unlock_user(uid):
         db.execute(f"UPDATE {table} SET submitted=0 WHERE evaluator_id=?", (uid,))
     db.commit()
     return jsonify({'message': '已开放修改权限'})
+
+@app.route('/api/admin/reset-password/<int:uid>', methods=['POST'])
+@require_super_admin
+def admin_reset_password(uid):
+    """Super admin emergency password reset for any user. Returns new password."""
+    data = request.get_json() or {}
+    new_pw = data.get('new_password') or secrets.token_urlsafe(10)
+    if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
+        new_pw = secrets.token_urlsafe(10) + 'Aa1'  # ensure compliance
+    db = get_db()
+    target = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
+    if not target:
+        return jsonify({'error': '用户不存在或已禁用'}), 404
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), uid))
+    _log_admin_action(db, g.user, uid, target['en_name'], 'reset_password',
+                      '[redacted]', '[redacted]', f"由 {g.user['en_name']} 重置了 {target['en_name']} 的密码")
+    return jsonify({
+        'message': f'已重置 {target["en_name"]} 的密码',
+        'new_password': new_pw,
+        'note': '请将新密码安全地告知用户，此密码不会再次显示。'
+    })
 
 # ========== Sub-Admin Management (Main Admin Only) ==========
 @app.route('/api/admin/sub-admins', methods=['GET'])
@@ -1109,6 +1214,44 @@ def get_status():
     if token:
         status['dim4'] = db.execute("SELECT COUNT(*) FROM dim4_leadership WHERE anonymous_token=? AND submitted=1", (token,)).fetchone()[0]
     return jsonify(status)
+
+@app.route('/api/overall-status', methods=['GET'])
+@require_auth
+def get_overall_status():
+    """Return overall completion status: dim2 + dim3 both submitted = complete."""
+    db = get_db()
+    uid = g.user['id']
+    dim2_cnt = db.execute(
+        "SELECT COUNT(*) as cnt FROM dim2_upward WHERE evaluator_id=? AND submitted=1", (uid,)
+    ).fetchone()['cnt']
+    dim3_cnt = db.execute(
+        "SELECT COUNT(*) as cnt FROM dim3_downward WHERE evaluator_id=? AND submitted=1", (uid,)
+    ).fetchone()['cnt']
+    dim3_total = db.execute(
+        "SELECT COUNT(*) as cnt FROM dim3_downward WHERE evaluator_id=?", (uid,)
+    ).fetchone()['cnt']
+    dim1_cnt = db.execute(
+        "SELECT COUNT(*) as cnt FROM dim1_peer WHERE evaluator_id=? AND submitted=1", (uid,)
+    ).fetchone()['cnt']
+    dim1_total = db.execute(
+        "SELECT COUNT(*) as cnt FROM dim1_peer WHERE evaluator_id=?", (uid,)
+    ).fetchone()['cnt']
+    token = request.args.get('anon_token', '')
+    dim4_cnt = 0
+    if token:
+        dim4_cnt = db.execute(
+            "SELECT COUNT(*) as cnt FROM dim4_leadership WHERE anonymous_token=? AND submitted=1", (token,)
+        ).fetchone()['cnt']
+    return jsonify({
+        'dim2_complete': dim2_cnt > 0,
+        'dim3_complete': dim3_cnt > 0,
+        'dim3_total': dim3_total,
+        'dim1_complete': dim1_cnt > 0,
+        'dim1_total': dim1_total,
+        'dim4_submitted': dim4_cnt,
+        'mandatory_complete': dim2_cnt > 0 and dim3_cnt > 0,
+        'overall_complete': dim2_cnt > 0 and dim3_cnt > 0
+    })
 
 # ========== Super Admin: Admin Role Management ==========
 def _log_admin_action(db, operator, target_id, target_name, action, old_value, new_value, detail=''):
