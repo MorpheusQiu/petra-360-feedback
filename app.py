@@ -522,7 +522,8 @@ def get_me():
         'can_edit': bool(u.get('can_edit', False)),
         'can_submit': can_submit,
         'lang': u.get('lang', 'zh'),
-        'user_type': g.user_type
+        'user_type': g.user_type,
+        'has_manager': bool(u.get('manager_en', ''))  # 新增：是否有上级（用于维度二动态必填）
     }
 
     # Sub-admin permissions
@@ -531,6 +532,35 @@ def get_me():
         resp['sub_permissions'] = perms
 
     return jsonify(resp)
+
+@app.route('/api/admin/reset-all-passwords', methods=['POST'])
+@require_super_admin
+def reset_all_passwords():
+    """重置所有用户密码为 INIT_DEFAULT_PASSWORD (默认: petra2026)"""
+    db = get_db()
+    new_pw = os.environ.get('INIT_DEFAULT_PASSWORD') or 'petra2026'
+    new_hash = generate_password_hash(new_pw)
+    
+    db.execute("UPDATE users SET password_hash=? WHERE status='active'", (new_hash,))
+    db.commit()
+    
+    count = db.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0]
+    
+    # 记录操作日志
+    operator_id = g.user['id'] if g.user_type == 'user' else None
+    if operator_id:
+        db.execute(
+            "INSERT INTO admin_logs (operator_id, operator_name, target_id, target_name, action, detail) VALUES (?,?,?,?,?,?)",
+            (operator_id, g.user['en_name'], 0, 'ALL_USERS', 'reset_all_passwords', f'重置{count}名用户密码为默认密码')
+        )
+        db.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'已重置 {count} 名用户的密码为默认密码',
+        'default_password': new_pw,
+        'affected_users': count
+    })
 
 @app.route('/api/change_password', methods=['POST'])
 @require_auth

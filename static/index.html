@@ -254,8 +254,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
     </div>
 
     <!-- ========== EMPLOYEE: DIM2 ========== -->
-    <div id="page-dim2" class="page">
-      <div class="dim-desc" data-i18n="dim2_desc"><strong>维度二：员工对直属上级的反馈</strong> — 请基于与直属上级的日常工作互动，客观评价其管理能力与领导风格。反馈结果仅HR及直属上级的上级可见。</div>
+      <div id="page-dim2" class="page">
+        <div class="dim-desc" data-i18n="dim2_desc"><strong>维度二：员工对直属上级的反馈</strong> — 请基于与直属上级的日常工作互动，客观评价其管理能力与领导风格。反馈结果仅HR及直属上级的上级可见。</div>
+      <div id="dim2-no-manager-notice" class="alert alert-info" style="display:none; margin-bottom:12px;">
+        ℹ️ <span data-i18n="dim2_optional">您没有设置上级，维度二为选填项。您可以选择不填写，或手动填写上级姓名进行反馈。</span>
+      </div>
       <div class="dim-instructions" data-i18n="dim_rubric_short">【评分标准】5=卓越 | 4=优秀 | 3=良好 | 2=需改进 | 1=不达标 | N/A=不了解/不适用</div>
       <div class="section-card">
         <div class="section-header"><h3 data-i18n="basic_info">基本信息</h3></div>
@@ -613,6 +616,8 @@ const I18N = {
     dim2_pending_msg: '维度二（对上级反馈）尚未提交，请尽快完成并提交。',
     both_dim_pending_msg: '维度二（对上级反馈）和维度三（上级对下级）均为必填项，请完成并提交。',
     dim2_no_manager: '系统中未找到您的直属上级信息。如需填写维度二，请联系HR更新您的上级信息。',
+    dim2_optional: '您没有设置上级，维度二为选填项。您可以选择不填写，或手动填写上级姓名进行反馈。',
+    manager_name_placeholder: '请输入上级姓名',
     dim3_no_subordinates: '系统未检测到您的直接下属。如果您没有下属，维度三不适用于您，请忽略此项。',
     dim3_auto_locked: '系统自动绑定的下属评价（不可删除）',
     dim3_manual_entries: '手动添加的下属评价',
@@ -864,6 +869,8 @@ const I18N = {
     dim2_pending_msg: 'Dimension 2 (Upward Feedback) has not been submitted. Please complete and submit.',
     both_dim_pending_msg: 'Both Dimension 2 (Upward Feedback) and Dimension 3 (Downward Feedback) are mandatory. Please complete and submit both.',
     dim2_no_manager: 'No direct manager found in the system. If you need to submit Dimension 2, please contact HR to update your manager info.',
+    dim2_optional: 'You have no manager set. Dimension 2 is optional. You may skip it or manually enter a manager name for feedback.',
+    manager_name_placeholder: 'Enter manager name',
     dim3_no_subordinates: 'No direct subordinates detected. If you have no subordinates, Dimension 3 does not apply to you — please disregard.',
     dim3_auto_locked: 'Auto-bound subordinate evaluations (cannot be deleted)',
     dim3_manual_entries: 'Manually added subordinate evaluations',
@@ -1152,7 +1159,13 @@ async function initApp() {
   document.getElementById('header-role').textContent = t('role_' + (currentUser.role === 'sub_admin' ? 'sub_admin' : currentUser.role === 'admin' ? 'admin' : 'employee'));
   document.getElementById('cycle-label').textContent = '2026 H1';
   applyLanguage();
-
+  
+  // 根据是否有上级，动态调整维度二必填标签
+  const dim2MandatoryBadge = document.querySelector('[data-tab="dim2"] .badge.mandatory');
+  if (dim2MandatoryBadge) {
+    dim2MandatoryBadge.style.display = currentUser.has_manager ? 'inline-block' : 'none';
+  }
+  
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'sub_admin';
   if (isAdmin) {
     // Show role switch
@@ -1344,14 +1357,21 @@ async function loadDim2() {
   document.getElementById('dim2-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
   document.getElementById('dim2-dept').value = currentUser.department || '';
   document.getElementById('dim2-manager').value = currentUser.manager_en || '';
-  // Auto-create the single dim2 entry bound to the user's manager
-  if (dim2Data.length === 0 && currentUser.manager_en) {
-    dim2Data.push({ manager_name: currentUser.manager_en, score_goal_setting:0, score_communication:0, score_delegation:0, score_feedback:0, score_team_climate:0, score_fairness:0, strengths:'', improvements:'', suggestions:'', submitted:false });
+  
+  // Show/hide "no manager" notice (dim2 is optional if no manager)
+  const noManagerNotice = document.getElementById('dim2-no-manager-notice');
+  if (noManagerNotice) {
+    noManagerNotice.style.display = currentUser.has_manager ? 'none' : 'block';
   }
-  // Lock: if the user has no manager, show a notice and disable submit
-  if (!currentUser.manager_en) {
-    document.getElementById('dim2-items').innerHTML = `<div class="empty-state"><div class="icon">ℹ️</div><p>${t('dim2_no_manager')}</p></div>`;
-    return;
+  
+  // Auto-create the single dim2 entry
+  if (dim2Data.length === 0) {
+    if (currentUser.manager_en) {
+      dim2Data.push({ manager_name: currentUser.manager_en, score_goal_setting:0, score_communication:0, score_delegation:0, score_feedback:0, score_team_climate:0, score_fairness:0, strengths:'', improvements:'', suggestions:'', submitted:false });
+    } else {
+      // No manager: create empty entry for optional submission
+      dim2Data.push({ manager_name:'', score_goal_setting:0, score_communication:0, score_delegation:0, score_feedback:0, score_team_climate:0, score_fairness:0, strengths:'', improvements:'', suggestions:'', submitted:false });
+    }
   }
   renderDim2();
 }
@@ -1384,6 +1404,11 @@ function renderDim2Item(item, idx) {
         </div>
       </div>
       <div class="section-body">
+        ${!currentUser.has_manager ? `
+        <div class="info-row">
+          <div class="form-group"><label>${t('manager_name')}</label><input type="text" value="${esc(item.manager_name||'')}" onchange="updateDim2Field(${idx},'manager_name',this.value)" placeholder="${t('manager_name_placeholder') || '请输入上级姓名'}"></div>
+        </div>
+        ` : ''}
         <table class="score-table">
           <thead><tr><th>${t('scoring_label')}</th>${DIM2_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
           <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
@@ -1400,7 +1425,8 @@ async function saveDim2(submit) {
   const item = dim2Data[0];
   if (!item) return;
   item.submitted = submit;
-  if (submit && (!item.strengths || !item.improvements)) {
+  // 仅当用户有上级时，提交才验证必填字段；无上级时维度二为选填
+  if (submit && currentUser.has_manager && (!item.strengths || !item.improvements)) {
     showToast(t('submit_validation_dim2'), 'error'); return;
   }
   try {
