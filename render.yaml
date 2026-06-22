@@ -25,8 +25,6 @@ services:
         value: "0.0.0.0"
       - key: SECRET_KEY
         generateValue: true    # Render 自动生成 64 位随机密钥
-      - key: INIT_DEFAULT_PASSWORD
-        value: "petra2026"     # 首次初始化默认密码。⚠️ 若部署清除数据库，所有用户密码重置为此值
       - key: DB_PATH
         value: ""              # 持久化数据库路径（如附加了 Render Disk: /var/data/feedback.db）
       - key: PYTHON_VERSION

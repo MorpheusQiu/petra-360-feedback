@@ -1828,7 +1828,7 @@ function updateBadges() {
   document.getElementById('badge-dim3').className = !currentUser.has_subordinates ? 'badge' : (d3 > 0 ? 'badge' : (dim3HasData ? 'badge warn' : 'badge'));
   document.getElementById('badge-dim4').className = d4 > 0 ? 'badge' : (dim4Data.length > 0 ? 'badge warn' : 'badge');
   // Overall mandatory completion status
-  const dim2Done = dim2Data.length > 0 && d2 > 0;
+  const dim2Done = !currentUser.has_manager || (dim2Data.length > 0 && d2 > 0);
   const dim3Done = !currentUser.has_subordinates || (dim3HasData && d3 > 0);
   const bar = document.getElementById('overall-status-bar');
   if (!bar) return;

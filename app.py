@@ -220,9 +220,15 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Check if users exist — seed_users sets per-user passwords from PB360 Excel
+    count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if count == 0:
+        seed_users(db)
+
     # Migration: update passwords to per-user Excel defaults (2026-06-22)
-    # This must run after the settings table is created but before seed_users check,
-    # so existing Render deployments get the new passwords without DB wipe.
+    # Runs AFTER seed_users so it covers both scenarios:
+    #  (A) fresh DB: seed_users just set per-user passwords via default_passwords dict
+    #  (B) existing DB: updates old petra2026 passwords → new per-user passwords
     pw_migrated = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
     if not pw_migrated:
         _default_passwords = {
@@ -248,11 +254,6 @@ def init_db():
         db.execute("INSERT OR IGNORE INTO settings VALUES ('pw_migrated_to_excel', '1')")
         db.commit()
         print(f"[Migration] Updated {_updated} users to per-user default passwords (Excel).")
-
-    # Check if users exist
-    count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    if count == 0:
-        seed_users(db)
 
     # Seed settings
     db.execute("INSERT OR IGNORE INTO settings VALUES ('submission_open', '1')")
@@ -1036,10 +1037,20 @@ def admin_dashboard():
     stats = {}
     for dim, table, uid_col in [
         ('dim1', 'dim1_peer', 'evaluator_id'),
-        ('dim2', 'dim2_upward', 'evaluator_id'),
     ]:
         submitted = db.execute(f"SELECT COUNT(DISTINCT {uid_col}) FROM {table} WHERE submitted=1").fetchone()[0]
         stats[dim] = {'submitted': submitted, 'total': total_users}
+    
+    # dim2: only count users who have a manager (exclude top management)
+    dim2_total = db.execute(
+        "SELECT COUNT(*) FROM users WHERE status='active' AND manager_en != '' AND manager_en IS NOT NULL"
+    ).fetchone()[0]
+    dim2_submitted = db.execute(
+        "SELECT COUNT(DISTINCT d.evaluator_id) FROM dim2_upward d "
+        "INNER JOIN users u ON d.evaluator_id=u.id "
+        "WHERE d.submitted=1 AND u.manager_en != '' AND u.manager_en IS NOT NULL"
+    ).fetchone()[0]
+    stats['dim2'] = {'submitted': dim2_submitted, 'total': dim2_total}
     
     # dim3: only count auto_created records (preset subordinates), exclude manual entries
     dim3_submitted = db.execute(
