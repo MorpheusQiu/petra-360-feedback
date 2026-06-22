@@ -600,6 +600,9 @@ const I18N = {
     save: '保存',
     delete: '删除',
     unlock: '开放修改',
+    close_edit: '关闭修改',
+    open_edit_confirm: '确认开放该用户的修改权限？开放后该用户可重新编辑已提交的评价。',
+    close_edit_confirm: '确认关闭该用户的修改权限？关闭后该用户将无法修改评价（除非再次开放）。',
     reset_pw: '重置密码',
     lock_status: '状态',
     locked: '已锁定',
@@ -853,6 +856,10 @@ const I18N = {
     save: 'Save',
     delete: 'Remove',
     unlock: 'Unlock',
+    open_edit: 'Open Edit',
+    close_edit: 'Close Edit',
+    open_edit_confirm: 'Open edit permission for this user? They will be able to re-edit submitted evaluations.',
+    close_edit_confirm: 'Close edit permission for this user? They will not be able to modify evaluations unless re-opened.',
     reset_pw: 'Reset Password',
     lock_status: 'Status',
     locked: 'Locked',
@@ -1166,6 +1173,12 @@ async function initApp() {
     dim2MandatoryBadge.style.display = currentUser.has_manager ? 'inline-block' : 'none';
   }
   
+  // 根据是否有下属，动态调整维度三必填标签
+  const dim3MandatoryBadge = document.querySelector('[data-tab="dim3"] .badge.mandatory');
+  if (dim3MandatoryBadge) {
+    dim3MandatoryBadge.style.display = currentUser.has_subordinates ? 'inline-block' : 'none';
+  }
+  
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'sub_admin';
   if (isAdmin) {
     // Show role switch
@@ -1354,16 +1367,18 @@ async function saveDim1(submit) {
 // ============ DIM2: UPWARD ============
 async function loadDim2() {
   try { dim2Data = await api('/api/dim2'); } catch(e) { dim2Data = []; }
+  // Ensure only one dim2 record: keep only the first
+  if (dim2Data.length > 1) dim2Data = [dim2Data[0]];
   document.getElementById('dim2-evaluator').value = `${currentUser.ch_name} (${currentUser.en_name})`;
   document.getElementById('dim2-dept').value = currentUser.department || '';
   document.getElementById('dim2-manager').value = currentUser.manager_en || '';
-  
+
   // Show/hide "no manager" notice (dim2 is optional if no manager)
   const noManagerNotice = document.getElementById('dim2-no-manager-notice');
   if (noManagerNotice) {
     noManagerNotice.style.display = currentUser.has_manager ? 'none' : 'block';
   }
-  
+
   // Auto-create the single dim2 entry
   if (dim2Data.length === 0) {
     if (currentUser.manager_en) {
@@ -1380,7 +1395,8 @@ function renderDim2() {
   if (dim2Data.length === 0) {
     container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
   } else {
-    container.innerHTML = dim2Data.map((item, idx) => renderDim2Item(item, idx)).join('');
+    // Only render the first record (each user has at most 1 dim2 record)
+    container.innerHTML = renderDim2Item(dim2Data[0], 0);
   }
   updateBadges();
 }
@@ -1653,17 +1669,19 @@ function updateBadges() {
   const d2 = dim2Data.filter(i => i.submitted).length;
   const d3 = dim3Data.filter(i => i.submitted).length;
   const d4 = dim4Data.filter(i => i.submitted).length;
+  const dim3HasData = dim3Data.length > 0;
+  const dim3Label = !currentUser.has_subordinates ? '' : (dim3HasData ? `${d3}/${dim3Data.length}` : '');
   document.getElementById('badge-dim1').textContent = dim1Data.length > 0 ? `${d1}/${dim1Data.length}` : '';
   document.getElementById('badge-dim2').textContent = dim2Data.length > 0 ? `${d2}/${dim2Data.length}` : '';
-  document.getElementById('badge-dim3').textContent = dim3Data.length > 0 ? `${d3}/${dim3Data.length}` : '';
+  document.getElementById('badge-dim3').textContent = dim3Label;
   document.getElementById('badge-dim4').textContent = dim4Data.length > 0 ? `${d4}/${dim4Data.length}` : '';
   document.getElementById('badge-dim1').className = d1 > 0 ? 'badge' : (dim1Data.length > 0 ? 'badge warn' : 'badge');
   document.getElementById('badge-dim2').className = d2 > 0 ? 'badge' : (dim2Data.length > 0 ? 'badge warn' : 'badge');
-  document.getElementById('badge-dim3').className = d3 > 0 ? 'badge' : (dim3Data.length > 0 ? 'badge warn' : 'badge');
+  document.getElementById('badge-dim3').className = !currentUser.has_subordinates ? 'badge' : (d3 > 0 ? 'badge' : (dim3HasData ? 'badge warn' : 'badge'));
   document.getElementById('badge-dim4').className = d4 > 0 ? 'badge' : (dim4Data.length > 0 ? 'badge warn' : 'badge');
   // Overall mandatory completion status
   const dim2Done = dim2Data.length > 0 && d2 > 0;
-  const dim3Done = dim3Data.length > 0 && d3 > 0;
+  const dim3Done = !currentUser.has_subordinates || (dim3HasData && d3 > 0);
   const bar = document.getElementById('overall-status-bar');
   if (!bar) return;
   if (dim2Done && dim3Done) {
@@ -1769,18 +1787,19 @@ function renderAdminUsers(users) {
         <td><span class="status-tag ${u.dim3_done>0?'done':'pending'}">${u.dim3_done>0?t('submitted_status'):t('not_submitted')}</span></td>
         <td>${u.can_edit?`<span class="status-tag done">${t('editable')}</span>`:`<span class="status-tag none">${t('locked')}</span>`}</td>
         <td>
-          <button class="btn btn-sm btn-outline" onclick="unlockUser(${u.id})" ${u.can_edit?'disabled':''}>${t('unlock')}</button>
+          <button class="btn btn-sm ${u.can_edit?'btn-warn':'btn-outline'}" onclick="unlockUser(${u.id}, ${u.can_edit})">${u.can_edit?t('close_edit'):t('open_edit')}</button>
           <button class="btn btn-sm btn-outline" onclick="resetUserPassword(${u.id})">${t('reset_pw')}</button>
         </td>
       </tr>
     `).join('')}</tbody>`;
 }
 
-async function unlockUser(uid) {
-  if (!confirm(t('unlocked_confirm'))) return;
+async function unlockUser(uid, can_edit) {
+  const confirmMsg = can_edit ? t('close_edit_confirm') : t('open_edit_confirm');
+  if (!confirm(confirmMsg)) return;
   try {
-    await api(`/api/admin/unlock/${uid}`, {method:'POST'});
-    showToast(t('unlocked'), 'success');
+    const resp = await api(`/api/admin/unlock/${uid}`, {method:'POST'});
+    showToast(resp.message, 'success');
     loadAdminUsers();
   } catch(e) { showToast(e.message, 'error'); }
 }

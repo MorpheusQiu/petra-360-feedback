@@ -523,7 +523,9 @@ def get_me():
         'can_submit': can_submit,
         'lang': u.get('lang', 'zh'),
         'user_type': g.user_type,
-        'has_manager': bool(u.get('manager_en', ''))  # 新增：是否有上级（用于维度二动态必填）
+        'has_manager': bool(u.get('manager_en', '')),  # 新增：是否有上级（用于维度二动态必填）
+        'has_subordinates': db.execute("SELECT 1 FROM users WHERE manager_en=? AND status='active' AND id != ? LIMIT 1",
+                                 (u['en_name'], u['id'])).fetchone() is not None,
     }
 
     # Sub-admin permissions
@@ -695,8 +697,11 @@ def delete_dim1(item_id):
 @require_auth
 def get_dim2():
     db = get_db()
-    items = db.execute("SELECT * FROM dim2_upward WHERE evaluator_id=?", (g.user['id'],)).fetchall()
-    return jsonify([dict(i) for i in items])
+    # Only return the single latest record for this user (each user has at most 1 dim2 record)
+    item = db.execute("SELECT * FROM dim2_upward WHERE evaluator_id=? ORDER BY id DESC LIMIT 1", (g.user['id'],)).fetchone()
+    if item:
+        return jsonify([dict(item)])
+    return jsonify([])
 
 @app.route('/api/dim2', methods=['POST'])
 @require_auth
@@ -722,18 +727,32 @@ def save_dim2():
         db.commit()
         return jsonify({'id': item_id, 'message': '保存成功'})
     else:
-        cur = db.execute('''INSERT INTO dim2_upward (evaluator_id, manager_name, score_goal_setting,
-            score_communication, score_delegation, score_feedback, score_team_climate,
-            score_fairness, strengths, improvements, suggestions, submitted, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-            (g.user['id'], data.get('manager_name',''), data.get('score_goal_setting',0),
-             data.get('score_communication',0), data.get('score_delegation',0),
-             data.get('score_feedback',0), data.get('score_team_climate',0),
-             data.get('score_fairness',0), data.get('strengths',''),
-             data.get('improvements',''), data.get('suggestions',''),
-             int(data.get('submitted', False)), now, now))
-        db.commit()
-        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+        existing = db.execute("SELECT id FROM dim2_upward WHERE evaluator_id=?", (g.user['id'],)).fetchone()
+        if existing:
+            db.execute('''UPDATE dim2_upward SET manager_name=?, score_goal_setting=?, score_communication=?,
+                score_delegation=?, score_feedback=?, score_team_climate=?, score_fairness=?,
+                strengths=?, improvements=?, suggestions=?, submitted=?, updated_at=? WHERE id=?''',
+                (data.get('manager_name',''), data.get('score_goal_setting',0),
+                 data.get('score_communication',0), data.get('score_delegation',0),
+                 data.get('score_feedback',0), data.get('score_team_climate',0),
+                 data.get('score_fairness',0), data.get('strengths',''),
+                 data.get('improvements',''), data.get('suggestions',''),
+                 int(data.get('submitted', False)), now, existing['id']))
+            db.commit()
+            return jsonify({'id': existing['id'], 'message': '保存成功'})
+        else:
+            cur = db.execute('''INSERT INTO dim2_upward (evaluator_id, manager_name, score_goal_setting,
+                score_communication, score_delegation, score_feedback, score_team_climate,
+                score_fairness, strengths, improvements, suggestions, submitted, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (g.user['id'], data.get('manager_name',''), data.get('score_goal_setting',0),
+                 data.get('score_communication',0), data.get('score_delegation',0),
+                 data.get('score_feedback',0), data.get('score_team_climate',0),
+                 data.get('score_fairness',0), data.get('strengths',''),
+                 data.get('improvements',''), data.get('suggestions',''),
+                 int(data.get('submitted', False)), now, now))
+            db.commit()
+            return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
 
 # ========== Dimension 3: Downward Feedback ==========
 @app.route('/api/dim3', methods=['GET'])
@@ -784,19 +803,35 @@ def save_dim3():
         db.commit()
         return jsonify({'id': item_id, 'message': '保存成功'})
     else:
-        cur = db.execute('''INSERT INTO dim3_downward (evaluator_id, subordinate_name, subordinate_position,
-            score_quality, score_professional, score_initiative, score_teamwork,
-            score_problem_solving, score_customer, strengths, improvements,
-            submitted, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-            (g.user['id'], data.get('subordinate_name',''), data.get('subordinate_position',''),
-             data.get('score_quality',0), data.get('score_professional',0),
-             data.get('score_initiative',0), data.get('score_teamwork',0),
-             data.get('score_problem_solving',0), data.get('score_customer',0),
-             data.get('strengths',''), data.get('improvements',''),
-             int(data.get('submitted', False)), now, now))
-        db.commit()
-        return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+        existing = db.execute("SELECT id FROM dim3_downward WHERE evaluator_id=? AND subordinate_name=?", 
+                             (g.user['id'], data.get('subordinate_name',''))).fetchone()
+        if existing:
+            db.execute('''UPDATE dim3_downward SET subordinate_name=?, subordinate_position=?,
+                score_quality=?, score_professional=?, score_initiative=?, score_teamwork=?,
+                score_problem_solving=?, score_customer=?, strengths=?, improvements=?,
+                submitted=?, updated_at=? WHERE id=?''',
+                (data.get('subordinate_name',''), data.get('subordinate_position',''),
+                 data.get('score_quality',0), data.get('score_professional',0),
+                 data.get('score_initiative',0), data.get('score_teamwork',0),
+                 data.get('score_problem_solving',0), data.get('score_customer',0),
+                 data.get('strengths',''), data.get('improvements',''),
+                 int(data.get('submitted', False)), now, existing['id']))
+            db.commit()
+            return jsonify({'id': existing['id'], 'message': '保存成功'})
+        else:
+            cur = db.execute('''INSERT INTO dim3_downward (evaluator_id, subordinate_name, subordinate_position,
+                score_quality, score_professional, score_initiative, score_teamwork,
+                score_problem_solving, score_customer, strengths, improvements,
+                submitted, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (g.user['id'], data.get('subordinate_name',''), data.get('subordinate_position',''),
+                 data.get('score_quality',0), data.get('score_professional',0),
+                 data.get('score_initiative',0), data.get('score_teamwork',0),
+                 data.get('score_problem_solving',0), data.get('score_customer',0),
+                 data.get('strengths',''), data.get('improvements',''),
+                 int(data.get('submitted', False)), now, now))
+            db.commit()
+            return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
 
 # ========== Dimension 4: Anonymous Leadership ==========
 @app.route('/api/dim4/token', methods=['POST'])
@@ -964,12 +999,20 @@ def admin_update_settings():
 @app.route('/api/admin/unlock/<int:uid>', methods=['POST'])
 @require_admin
 def admin_unlock_user(uid):
+    """Toggle can_edit: if currently closed (0), open it; if open (1), close it.
+       When opening, also reset submitted=0 for all dimensions so user can re-submit."""
     db = get_db()
-    db.execute("UPDATE users SET can_edit=1 WHERE id=?", (uid,))
-    for table in ['dim1_peer', 'dim2_upward', 'dim3_downward']:
-        db.execute(f"UPDATE {table} SET submitted=0 WHERE evaluator_id=?", (uid,))
+    user = db.execute("SELECT can_edit FROM users WHERE id=?", (uid,)).fetchone()
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+    new_val = 0 if user['can_edit'] else 1
+    db.execute("UPDATE users SET can_edit=? WHERE id=?", (new_val, uid))
+    if new_val == 1:  # opening edit: also reset submitted flags
+        for table in ['dim1_peer', 'dim2_upward', 'dim3_downward']:
+            db.execute(f"UPDATE {table} SET submitted=0 WHERE evaluator_id=?", (uid,))
     db.commit()
-    return jsonify({'message': '已开放修改权限'})
+    action = '已开放修改权限' if new_val == 1 else '已关闭修改权限'
+    return jsonify({'message': action, 'can_edit': bool(new_val)})
 
 @app.route('/api/admin/reset-password/<int:uid>', methods=['POST'])
 @require_super_admin
