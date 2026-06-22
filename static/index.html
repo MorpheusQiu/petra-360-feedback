@@ -249,8 +249,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
       <div id="dim1-items"></div>
       <button class="add-btn" onclick="addDim1Item()">+ <span data-i18n="add_target">添加评价对象</span></button>
       <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
-        <button class="btn btn-outline" onclick="saveDim1(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
-        <button class="btn btn-primary" onclick="saveDim1(true)">✅ <span data-i18n="submit">提交</span></button>
+        <button class="btn btn-outline" id="btn-dim1-draft" onclick="saveDim1(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" id="btn-dim1-submit" onclick="saveDim1(true)">✅ <span data-i18n="submit">提交</span></button>
       </div>
     </div>
 
@@ -307,8 +307,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
       <div id="dim4-items"></div>
       <button class="add-btn" onclick="addDim4Item()">+ <span data-i18n="add_target">添加评价对象</span></button>
       <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
-        <button class="btn btn-outline" onclick="saveDim4(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
-        <button class="btn btn-primary" onclick="saveDim4(true)">✅ <span data-i18n="anon_submit">匿名提交</span></button>
+        <button class="btn btn-outline" id="btn-dim4-draft" onclick="saveDim4(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" id="btn-dim4-submit" onclick="saveDim4(true)">✅ <span data-i18n="anon_submit">匿名提交</span></button>
       </div>
     </div>
 
@@ -648,6 +648,7 @@ const I18N = {
     rel_indirect: '间接下级',
     rel_peer: '同级',
     rel_cross: '跨部门协作',
+    please_select: '请选择',
     feedback_required: '开放反馈与建议（必填≥1条）',
     org_climate_title: '组织氛围与文化建设（选填）',
     q1_org: '1. 您认为公司目前在组织管理方面，最需要改进的一个方面是什么？',
@@ -908,6 +909,7 @@ const I18N = {
     rel_indirect: 'Indirect Report',
     rel_peer: 'Peer',
     rel_cross: 'Cross-Functional',
+    please_select: 'Please Select',
     feedback_required: 'Open Feedback & Suggestions (at least 1 required)',
     org_climate_title: 'Organizational Climate & Culture (optional)',
     q1_org: '1. What is the one area of organizational management that needs the most improvement?',
@@ -1311,14 +1313,21 @@ function renderDim1() {
     dl.innerHTML = userList.map(u => `<option value="${u.en_name}">${u.ch_name} - ${u.department}</option>`).join('');
     container.appendChild(dl);
   }
+  // Update button states based on submission status
+  const anySubmitted = dim1Data.length > 0 && dim1Data.some(i => i.submitted);
+  const draftBtn = document.getElementById('btn-dim1-draft');
+  if (draftBtn) draftBtn.disabled = anySubmitted;
   updateBadges();
 }
 
 function renderDim1Item(item, idx) {
+  const isLocked = item.submitted;
+  const disabledAttr = isLocked ? 'disabled' : '';
+  const readOnlyAttr = isLocked ? 'readonly style="background:#f0f0f0;cursor:not-allowed"' : '';
   const scores = DIM1_DIMS.map((d,i) => `
     <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
       <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
-        onclick="setDim1Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+        ${disabledAttr} onclick="setDim1Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
     `).join('')}</div></td>
   `).join('');
 
@@ -1338,17 +1347,17 @@ function renderDim1Item(item, idx) {
       </div>
       <div class="section-body">
         <div class="info-row">
-          <div class="form-group"><label>${t('target_colleague')}</label><input type="text" value="${esc(item.target_name||'')}" onchange="updateDim1Field(${idx},'target_name',this.value)" list="user-list-all" placeholder="${t('collab_input_placeholder')}"></div>
-          <div class="form-group"><label>${t('target_dept')}</label><input type="text" value="${esc(item.target_dept||'')}" onchange="updateDim1Field(${idx},'target_dept',this.value)"></div>
-          <div class="form-group"><label>${t('collab_project')}</label><input type="text" value="${esc(item.collaboration_project||'')}" onchange="updateDim1Field(${idx},'collaboration_project',this.value)"></div>
+          <div class="form-group"><label>${t('target_colleague')}</label><input type="text" value="${esc(item.target_name||'')}" ${readOnlyAttr} onchange="updateDim1Field(${idx},'target_name',this.value)" list="user-list-all" placeholder="${t('collab_input_placeholder')}"></div>
+          <div class="form-group"><label>${t('target_dept')}</label><input type="text" value="${esc(item.target_dept||'')}" ${readOnlyAttr} onchange="updateDim1Field(${idx},'target_dept',this.value)"></div>
+          <div class="form-group"><label>${t('collab_project')}</label><input type="text" value="${esc(item.collaboration_project||'')}" ${readOnlyAttr} onchange="updateDim1Field(${idx},'collaboration_project',this.value)"></div>
         </div>
         <table class="score-table">
           <thead><tr><th>${t('scoring_label')}</th>${DIM1_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
           <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
         </table>
         <div class="info-row">
-          <div class="form-group"><label>${t('strengths_required')}</label><textarea onchange="updateDim1Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
-          <div class="form-group"><label>${t('improvements')}</label><textarea onchange="updateDim1Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
+          <div class="form-group"><label>${t('strengths_required')}</label><textarea ${readOnlyAttr} onchange="updateDim1Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
+          <div class="form-group"><label>${t('improvements')}</label><textarea ${readOnlyAttr} onchange="updateDim1Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
         </div>
       </div>
     </div>`;
@@ -1358,8 +1367,14 @@ function addDim1Item() {
   dim1Data.push({ target_name:'', target_dept:'', collaboration_project:'', score_communication:0, score_professional:0, score_responsibility:0, score_teamwork:0, score_problem_solving:0, strengths:'', improvements:'', submitted:false });
   renderDim1();
 }
-function updateDim1Field(idx, field, value) { dim1Data[idx][field] = value; scheduleAutoSave(); }
-function setDim1Score(idx, field, val) { dim1Data[idx][field] = val; renderDim1(); scheduleAutoSave(); }
+function updateDim1Field(idx, field, value) {
+  if (dim1Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim1Data[idx][field] = value; scheduleAutoSave();
+}
+function setDim1Score(idx, field, val) {
+  if (dim1Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim1Data[idx][field] = val; renderDim1(); scheduleAutoSave();
+}
 async function deleteDim1(idx) {
   if (!confirm(t('delete_confirm'))) return;
   const item = dim1Data[idx];
@@ -1370,6 +1385,13 @@ async function deleteDim1(idx) {
   renderDim1();
 }
 async function saveDim1(submit) {
+  // 已提交项不允许保存草稿（防止绕过提交锁）
+  if (!submit) {
+    const anySubmitted = dim1Data.some(i => i.submitted);
+    if (anySubmitted) {
+      showToast(t('submitted_cannot_draft'), 'error'); return;
+    }
+  }
   for (let i = 0; i < dim1Data.length; i++) {
     const item = dim1Data[i];
     item.submitted = submit;
@@ -1642,19 +1664,34 @@ function renderDim4() {
   } else {
     container.innerHTML = dim4Data.map((item, idx) => renderDim4Item(item, idx)).join('');
   }
+  // Update button states based on submission status
+  const anySubmitted = dim4Data.length > 0 && dim4Data.some(i => i.submitted);
+  const draftBtn = document.getElementById('btn-dim4-draft');
+  if (draftBtn) draftBtn.disabled = anySubmitted;
   updateBadges();
 }
 function renderDim4Item(item, idx) {
+  const isLocked = item.submitted;
+  const disabledAttr = isLocked ? 'disabled' : '';
+  const readOnlyAttr = isLocked ? 'readonly style="background:#f0f0f0;cursor:not-allowed"' : '';
   const scores = DIM4_DIMS.map((d,i) => `
     <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
       <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
-        onclick="setDim4Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+        ${disabledAttr} onclick="setDim4Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
     `).join('')}</div></td>
   `).join('');
   const sc = DIM4_DIMS.filter(d => (item[d]||0) > 0).length;
   const sm = DIM4_DIMS.reduce((s,d) => s + (item[d]||0), 0);
   const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
   const rels = ['rel_direct','rel_indirect','rel_peer','rel_cross'];
+  // Build manager select dropdown
+  const mgrOptions = managerList.map(m => `<option value="${m.en_name}" ${item.target_name===m.en_name?'selected':''}>${m.ch_name} (${m.en_name})</option>`).join('');
+  const targetInput = isLocked
+    ? `<input type="text" value="${esc(item.target_name||'')}" ${readOnlyAttr}>`
+    : `<select onchange="updateDim4Field(${idx},'target_name',this.value)">
+         <option value="">-- ${t('please_select')} --</option>
+         ${mgrOptions}
+       </select>`;
   return `
     <div class="section-card">
       <div class="section-header">
@@ -1667,8 +1704,8 @@ function renderDim4Item(item, idx) {
       </div>
       <div class="section-body">
         <div class="info-row">
-          <div class="form-group"><label>${t('target_manager')}</label><input type="text" value="${esc(item.target_name||'')}" onchange="updateDim4Field(${idx},'target_name',this.value)"></div>
-          <div class="form-group"><label>${t('relationship')}</label><select onchange="updateDim4Field(${idx},'relationship',this.value)">
+          <div class="form-group"><label>${t('target_manager')}</label>${targetInput}</div>
+          <div class="form-group"><label>${t('relationship')}</label><select onchange="updateDim4Field(${idx},'relationship',this.value)" ${disabledAttr}>
             <option value="">${t('relationship')}</option>
             ${rels.map(r => `<option ${item.relationship===t(r)?'selected':''}>${t(r)}</option>`).join('')}
           </select></div>
@@ -1677,12 +1714,12 @@ function renderDim4Item(item, idx) {
           <thead><tr><th>${t('scoring_label')}</th>${DIM4_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
           <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
         </table>
-        <div class="form-group"><label>${t('feedback_required')}</label><textarea onchange="updateDim4Field(${idx},'feedback_text',this.value)">${esc(item.feedback_text||'')}</textarea></div>
+        <div class="form-group"><label>${t('feedback_required')}</label><textarea ${readOnlyAttr} onchange="updateDim4Field(${idx},'feedback_text',this.value)">${esc(item.feedback_text||'')}</textarea></div>
         <div style="margin-top:20px;padding-top:16px;border-top:2px solid var(--primary-lighter);">
           <h4 style="margin-bottom:12px;color:var(--primary);">${t('org_climate_title')}</h4>
-          <div class="form-group"><label>${t('q1_org')}</label><textarea onchange="updateDim4Field(${idx},'q1_org_mgmt',this.value)">${esc(item.q1_org_mgmt||'')}</textarea></div>
-          <div class="form-group"><label>${t('q2_transparency')}</label><textarea onchange="updateDim4Field(${idx},'q2_transparency',this.value)">${esc(item.q2_transparency||'')}</textarea></div>
-          <div class="form-group"><label>${t('q3_engagement')}</label><textarea onchange="updateDim4Field(${idx},'q3_engagement',this.value)">${esc(item.q3_engagement||'')}</textarea></div>
+          <div class="form-group"><label>${t('q1_org')}</label><textarea ${readOnlyAttr} onchange="updateDim4Field(${idx},'q1_org_mgmt',this.value)">${esc(item.q1_org_mgmt||'')}</textarea></div>
+          <div class="form-group"><label>${t('q2_transparency')}</label><textarea ${readOnlyAttr} onchange="updateDim4Field(${idx},'q2_transparency',this.value)">${esc(item.q2_transparency||'')}</textarea></div>
+          <div class="form-group"><label>${t('q3_engagement')}</label><textarea ${readOnlyAttr} onchange="updateDim4Field(${idx},'q3_engagement',this.value)">${esc(item.q3_engagement||'')}</textarea></div>
         </div>
       </div>
     </div>`;
@@ -1691,14 +1728,27 @@ function addDim4Item() {
   dim4Data.push({ target_name:'', relationship:'', score_strategic:0, score_communication:0, score_empowerment:0, score_innovation:0, score_integrity:0, score_execution:0, score_collaboration:0, score_emotional:0, feedback_text:'', q1_org_mgmt:'', q2_transparency:'', q3_engagement:'', submitted:false });
   renderDim4();
 }
-function updateDim4Field(idx, field, value) { dim4Data[idx][field] = value; scheduleAutoSave(); }
-function setDim4Score(idx, field, val) { dim4Data[idx][field] = val; renderDim4(); scheduleAutoSave(); }
+function updateDim4Field(idx, field, value) {
+  if (dim4Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim4Data[idx][field] = value; scheduleAutoSave();
+}
+function setDim4Score(idx, field, val) {
+  if (dim4Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim4Data[idx][field] = val; renderDim4(); scheduleAutoSave();
+}
 async function deleteDim4(idx) {
   if (!confirm(t('delete_confirm_short'))) return;
   dim4Data.splice(idx,1);
   renderDim4();
 }
 async function saveDim4(submit) {
+  // 已提交项不允许保存草稿（防止绕过提交锁）
+  if (!submit) {
+    const anySubmitted = dim4Data.some(i => i.submitted);
+    if (anySubmitted) {
+      showToast(t('submitted_cannot_draft'), 'error'); return;
+    }
+  }
   for (let i = 0; i < dim4Data.length; i++) {
     const item = { ...dim4Data[i], token: dim4Token, submitted: submit };
     if (submit && (!item.target_name || !item.feedback_text)) {

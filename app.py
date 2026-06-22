@@ -1392,6 +1392,10 @@ def autosave():
         item_id = item.get('id')
         if not item_id:
             continue  # Skip items without ID (not yet saved via explicit save)
+        # Skip submitted items (defense against frontend bypass)
+        existing = db.execute(f"SELECT submitted FROM {table} WHERE id=?", (item_id,)).fetchone()
+        if existing and existing['submitted'] and not g.user.get('can_edit'):
+            continue
         vals = [item.get(f, '') for f in fields]
         set_clause = ', '.join([f'{f}=?' for f in fields])
         db.execute(f"UPDATE {table} SET {set_clause}, updated_at=? WHERE id=? AND evaluator_id=?",
