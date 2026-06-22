@@ -266,9 +266,25 @@ def seed_users(db):
         (28, 'Lola', '曾庆会', 'Petra Spark', '高级采购经理', 'Ali', 'employee', ''),
         (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', ''),
     ]
+    # Per-user default passwords (from PB360员工信息表.xlsx, 2026-06-22)
+    # Katrina not in Excel; password preset below
+    default_passwords = {
+        'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
+        'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
+        'Katrina': 'petra2026641',
+        'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
+        'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
+        'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
+        'Frank': 'petra2026348', 'Jim': 'petra2026100',
+        'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
+        'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
+        'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
+        'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
+    }
+    env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     recovery_seeds = {}
     for e in employees:
-        pw = os.environ.get('INIT_DEFAULT_PASSWORD') or secrets.token_urlsafe(10)
+        pw = env_pw or default_passwords.get(e[1], secrets.token_urlsafe(10))
         recovery_seeds[e[1]] = pw
         db.execute(
             "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role, admin_level) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -276,7 +292,6 @@ def seed_users(db):
         )
         print(f"[Seed] {e[1]} seeded.")
     db.commit()
-    env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     if env_pw:
         print(f"[Seed] All {len(employees)} users seeded with default password from env var.")
     else:
@@ -538,30 +553,44 @@ def get_me():
 @app.route('/api/admin/reset-all-passwords', methods=['POST'])
 @require_super_admin
 def reset_all_passwords():
-    """重置所有用户密码为 INIT_DEFAULT_PASSWORD (默认: petra2026)"""
+    """Reset all users to their per-user default passwords (from PB360 excel)"""
     db = get_db()
-    new_pw = os.environ.get('INIT_DEFAULT_PASSWORD') or 'petra2026'
-    new_hash = generate_password_hash(new_pw)
+    default_passwords = {
+        'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
+        'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
+        'Katrina': 'petra2026641',
+        'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
+        'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
+        'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
+        'Frank': 'petra2026348', 'Jim': 'petra2026100',
+        'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
+        'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
+        'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
+        'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
+    }
+    env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
+    users = db.execute("SELECT id, en_name FROM users WHERE status='active'").fetchall()
+    updated = 0
+    for u in users:
+        pw = env_pw or default_passwords.get(u['en_name'], 'petra2026')
+        db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(pw), u['id']))
+        updated += 1
     
-    db.execute("UPDATE users SET password_hash=? WHERE status='active'", (new_hash,))
     db.commit()
     
-    count = db.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0]
-    
-    # 记录操作日志
+    # Record admin log
     operator_id = g.user['id'] if g.user_type == 'user' else None
     if operator_id:
         db.execute(
             "INSERT INTO admin_logs (operator_id, operator_name, target_id, target_name, action, detail) VALUES (?,?,?,?,?,?)",
-            (operator_id, g.user['en_name'], 0, 'ALL_USERS', 'reset_all_passwords', f'重置{count}名用户密码为默认密码')
+            (operator_id, g.user['en_name'], 0, 'ALL_USERS', 'reset_all_passwords', f'Reset {updated} users to per-user default passwords')
         )
         db.commit()
     
     return jsonify({
         'success': True,
-        'message': f'已重置 {count} 名用户的密码为默认密码',
-        'default_password': new_pw,
-        'affected_users': count
+        'message': f'Reset {updated} users to per-user default passwords',
+        'affected_users': updated
     })
 
 @app.route('/api/change_password', methods=['POST'])
@@ -664,6 +693,8 @@ def save_dim1():
              data.get('score_problem_solving', 0), data.get('strengths',''),
              data.get('improvements',''), int(data.get('submitted', False)), now, item_id))
         db.commit()
+        if int(data.get('submitted', False)):
+            _auto_lock_if_all_submitted(db, g.user)
         return jsonify({'id': item_id, 'message': '保存成功'})
     else:
         cur = db.execute('''INSERT INTO dim1_peer (evaluator_id, target_name, target_dept, collaboration_project,
@@ -677,6 +708,8 @@ def save_dim1():
              data.get('strengths',''), data.get('improvements',''),
              int(data.get('submitted', False)), now, now))
         db.commit()
+        if int(data.get('submitted', False)):
+            _auto_lock_if_all_submitted(db, g.user)
         return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
 
 @app.route('/api/dim1/<int:item_id>', methods=['DELETE'])
@@ -692,7 +725,19 @@ def delete_dim1(item_id):
     db.commit()
     return jsonify({'message': '删除成功'})
 
-# ========== Dimension 2: Upward Feedback ==========
+# ========== Dimension 2: Upward Feedback (DELETE) ==========
+@app.route('/api/dim2/<int:item_id>', methods=['DELETE'])
+@require_auth
+def delete_dim2(item_id):
+    db = get_db()
+    item = db.execute("SELECT * FROM dim2_upward WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+    if not item:
+        return jsonify({'error': '记录不存在'}), 404
+    if item['submitted'] and not g.user.get('can_edit'):
+        return jsonify({'error': '已提交，无法删除'}), 403
+    db.execute("DELETE FROM dim2_upward WHERE id=?", (item_id,))
+    db.commit()
+    return jsonify({'message': '删除成功'})
 @app.route('/api/dim2', methods=['GET'])
 @require_auth
 def get_dim2():
@@ -725,6 +770,8 @@ def save_dim2():
              data.get('improvements',''), data.get('suggestions',''),
              int(data.get('submitted', False)), now, item_id))
         db.commit()
+        if int(data.get('submitted', False)):
+            _auto_lock_if_all_submitted(db, g.user)
         return jsonify({'id': item_id, 'message': '保存成功'})
     else:
         existing = db.execute("SELECT id FROM dim2_upward WHERE evaluator_id=?", (g.user['id'],)).fetchone()
@@ -739,6 +786,8 @@ def save_dim2():
                  data.get('improvements',''), data.get('suggestions',''),
                  int(data.get('submitted', False)), now, existing['id']))
             db.commit()
+            if int(data.get('submitted', False)):
+                _auto_lock_if_all_submitted(db, g.user)
             return jsonify({'id': existing['id'], 'message': '保存成功'})
         else:
             cur = db.execute('''INSERT INTO dim2_upward (evaluator_id, manager_name, score_goal_setting,
@@ -752,6 +801,8 @@ def save_dim2():
                  data.get('improvements',''), data.get('suggestions',''),
                  int(data.get('submitted', False)), now, now))
             db.commit()
+            if int(data.get('submitted', False)):
+                _auto_lock_if_all_submitted(db, g.user)
             return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
 
 # ========== Dimension 3: Downward Feedback ==========
@@ -801,6 +852,8 @@ def save_dim3():
              data.get('strengths',''), data.get('improvements',''),
              int(data.get('submitted', False)), now, item_id))
         db.commit()
+        if int(data.get('submitted', False)):
+            _auto_lock_if_all_submitted(db, g.user)
         return jsonify({'id': item_id, 'message': '保存成功'})
     else:
         existing = db.execute("SELECT id FROM dim3_downward WHERE evaluator_id=? AND subordinate_name=?", 
@@ -817,6 +870,8 @@ def save_dim3():
                  data.get('strengths',''), data.get('improvements',''),
                  int(data.get('submitted', False)), now, existing['id']))
             db.commit()
+            if int(data.get('submitted', False)):
+                _auto_lock_if_all_submitted(db, g.user)
             return jsonify({'id': existing['id'], 'message': '保存成功'})
         else:
             cur = db.execute('''INSERT INTO dim3_downward (evaluator_id, subordinate_name, subordinate_position,
@@ -831,7 +886,49 @@ def save_dim3():
                  data.get('strengths',''), data.get('improvements',''),
                  int(data.get('submitted', False)), now, now))
             db.commit()
+            if int(data.get('submitted', False)):
+                _auto_lock_if_all_submitted(db, g.user)
             return jsonify({'id': cur.lastrowid, 'message': '保存成功'})
+
+@app.route('/api/dim3/<int:item_id>', methods=['DELETE'])
+@require_auth
+def delete_dim3(item_id):
+    db = get_db()
+    item = db.execute("SELECT * FROM dim3_downward WHERE id=? AND evaluator_id=?", (item_id, g.user['id'])).fetchone()
+    if not item:
+        return jsonify({'error': '记录不存在'}), 404
+    if item['submitted'] and not g.user.get('can_edit'):
+        return jsonify({'error': '已提交，无法删除'}), 403
+    db.execute("DELETE FROM dim3_downward WHERE id=?", (item_id,))
+    db.commit()
+    return jsonify({'message': '删除成功'})
+
+# ========== Helper: Auto-lock after all mandatory dims submitted ==========
+def _auto_lock_if_all_submitted(db, user):
+    """检查用户是否已完成所有必填维度提交，若是则自动关闭编辑权限"""
+    u = db.execute("SELECT * FROM users WHERE id=?", (user['id'],)).fetchone()
+    # 必须 can_edit=1 才考虑自动锁闭
+    if not u['can_edit']:
+        return
+    # 检查维度二（仅当有上级时必填）
+    has_manager = bool(u.get('manager_en', ''))
+    dim2_submitted = True
+    if has_manager:
+        d2 = db.execute("SELECT 1 FROM dim2_upward WHERE evaluator_id=? AND submitted=1", (user['id'],)).fetchone()
+        dim2_submitted = d2 is not None
+    # 检查维度三（仅当有下属时必填）
+    has_subordinates = db.execute(
+        "SELECT 1 FROM users WHERE manager_en=? AND status='active' AND id != ? LIMIT 1",
+        (u['en_name'], u['id'])
+    ).fetchone() is not None
+    dim3_submitted = True
+    if has_subordinates:
+        d3 = db.execute("SELECT 1 FROM dim3_downward WHERE evaluator_id=? AND submitted=1", (user['id'],)).fetchone()
+        dim3_submitted = d3 is not None
+    # 所有必填维度已提交 → 自动锁闭
+    if dim2_submitted and dim3_submitted:
+        db.execute("UPDATE users SET can_edit=0 WHERE id=?", (user['id'],))
+        db.commit()
 
 # ========== Dimension 4: Anonymous Leadership ==========
 @app.route('/api/dim4/token', methods=['POST'])
@@ -911,10 +1008,18 @@ def admin_dashboard():
     for dim, table, uid_col in [
         ('dim1', 'dim1_peer', 'evaluator_id'),
         ('dim2', 'dim2_upward', 'evaluator_id'),
-        ('dim3', 'dim3_downward', 'evaluator_id')
     ]:
         submitted = db.execute(f"SELECT COUNT(DISTINCT {uid_col}) FROM {table} WHERE submitted=1").fetchone()[0]
         stats[dim] = {'submitted': submitted, 'total': total_users}
+    
+    # dim3: only count auto_created records (preset subordinates), exclude manual entries
+    dim3_submitted = db.execute(
+        "SELECT COUNT(DISTINCT evaluator_id) FROM dim3_downward WHERE submitted=1 AND auto_created=1"
+    ).fetchone()[0]
+    dim3_total = db.execute(
+        "SELECT COUNT(DISTINCT u.id) FROM users u WHERE u.status='active' AND EXISTS (SELECT 1 FROM users s WHERE s.manager_en=u.en_name AND s.status='active' AND s.id != u.id)"
+    ).fetchone()[0]
+    stats['dim3'] = {'submitted': dim3_submitted, 'total': dim3_total}
 
     dim4_count = db.execute("SELECT COUNT(*) FROM dim4_leadership WHERE submitted=1").fetchone()[0]
     stats['dim4'] = {'submitted': dim4_count, 'total': total_users}
@@ -1017,15 +1122,30 @@ def admin_unlock_user(uid):
 @app.route('/api/admin/reset-password/<int:uid>', methods=['POST'])
 @require_super_admin
 def admin_reset_password(uid):
-    """Super admin emergency password reset for any user. Returns new password."""
+    """Super admin emergency password reset for any user. Uses per-user default if no custom pw given."""
     data = request.get_json() or {}
-    new_pw = data.get('new_password') or secrets.token_urlsafe(10)
-    if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
-        new_pw = secrets.token_urlsafe(10) + 'Aa1'  # ensure compliance
+    new_pw = data.get('new_password')
     db = get_db()
     target = db.execute("SELECT * FROM users WHERE id=? AND status='active'", (uid,)).fetchone()
     if not target:
-        return jsonify({'error': '用户不存在或已禁用'}), 404
+        return jsonify({'error': 'User not found or disabled'}), 404
+    if not new_pw:
+        default_passwords = {
+            'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
+            'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
+            'Katrina': 'petra2026641',
+            'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
+            'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
+            'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
+            'Frank': 'petra2026348', 'Jim': 'petra2026100',
+            'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
+            'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
+            'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
+            'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
+        }
+        new_pw = default_passwords.get(target['en_name'], 'petra2026')
+    if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
+        new_pw = new_pw + 'Aa1'  # ensure compliance
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), uid))
     _log_admin_action(db, g.user, uid, target['en_name'], 'reset_password',
                       '[redacted]', '[redacted]', f"由 {g.user['en_name']} 重置了 {target['en_name']} 的密码")
@@ -1270,15 +1390,12 @@ def autosave():
     table, fields = table_map[dim]
     for item in items:
         item_id = item.get('id')
+        if not item_id:
+            continue  # Skip items without ID (not yet saved via explicit save)
         vals = [item.get(f, '') for f in fields]
-        if item_id:
-            set_clause = ', '.join([f'{f}=?' for f in fields])
-            db.execute(f"UPDATE {table} SET {set_clause}, updated_at=? WHERE id=? AND evaluator_id=?",
-                       vals + [now, item_id, g.user['id']])
-        else:
-            placeholders = ','.join(['?']*len(fields))
-            db.execute(f"INSERT INTO {table} (evaluator_id,{','.join(fields)},created_at,updated_at) VALUES (?,{placeholders},?,?)",
-                       [g.user['id']] + vals + [now, now])
+        set_clause = ', '.join([f'{f}=?' for f in fields])
+        db.execute(f"UPDATE {table} SET {set_clause}, updated_at=? WHERE id=? AND evaluator_id=?",
+                   vals + [now, item_id, g.user['id']])
     db.commit()
     return jsonify({'message': '自动保存成功', 'time': now})
 
