@@ -273,8 +273,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
       </div>
       <div id="dim2-items"></div>
       <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
-        <button class="btn btn-outline" onclick="saveDim2(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
-        <button class="btn btn-primary" onclick="saveDim2(true)">✅ <span data-i18n="submit">提交</span></button>
+        <button class="btn btn-outline" id="btn-dim2-draft" onclick="saveDim2(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" id="btn-dim2-submit" onclick="saveDim2(true)">✅ <span data-i18n="submit">提交</span></button>
       </div>
     </div>
 
@@ -295,8 +295,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
       <div id="dim3-items"></div>
       <button class="add-btn" onclick="addDim3Item()">+ <span data-i18n="add_subordinate">添加下属评价</span></button>
       <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
-        <button class="btn btn-outline" onclick="saveDim3(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
-        <button class="btn btn-primary" onclick="saveDim3(true)">✅ <span data-i18n="submit">提交</span></button>
+        <button class="btn btn-outline" id="btn-dim3-draft" onclick="saveDim3(false)">💾 <span data-i18n="save_draft">保存草稿</span></button>
+        <button class="btn btn-primary" id="btn-dim3-submit" onclick="saveDim3(true)">✅ <span data-i18n="submit">提交</span></button>
       </div>
     </div>
 
@@ -680,6 +680,8 @@ const I18N = {
     submit_validation_name: '请填写被评价同事姓名和主要优势',
     submit_validation_full: '请填写完整信息',
     submit_validation_dim2: '请填写"做得好的方面"和"需要改进的方面"',
+    submitted_locked: '已提交，无法修改。如需修改请联系管理员开放权限。',
+    submitted_cannot_draft: '已提交的评价无法保存草稿，请直接提交或联系管理员。',
     submit_validation_dim4: '请填写评价对象和反馈建议',
     load_error: '加载失败',
     load_dashboard_error: '加载仪表盘失败',
@@ -938,6 +940,8 @@ const I18N = {
     submit_validation_name: 'Please fill in the colleague name and key strengths',
     submit_validation_full: 'Please fill in all required fields',
     submit_validation_dim2: 'Please fill in "What They Do Well" and "Areas for Improvement"',
+    submitted_locked: 'Already submitted. Contact admin to unlock editing.',
+    submitted_cannot_draft: 'Submitted evaluations cannot be saved as draft. Contact admin to modify.',
     submit_validation_dim4: 'Please fill in the evaluee name and feedback',
     load_error: 'Failed to load',
     load_dashboard_error: 'Failed to load dashboard',
@@ -1173,7 +1177,14 @@ async function initApp() {
   // 根据是否有上级，动态调整维度二必填标签
   const dim2MandatoryBadge = document.querySelector('[data-tab="dim2"] .badge.mandatory');
   if (dim2MandatoryBadge) {
-    dim2MandatoryBadge.style.display = currentUser.has_manager ? 'inline-block' : 'none';
+    if (currentUser.has_manager) {
+      dim2MandatoryBadge.style.display = 'inline-block';
+      dim2MandatoryBadge.textContent = t('mandatory_short');
+      dim2MandatoryBadge.style.background = 'var(--danger)';
+    } else {
+      dim2MandatoryBadge.textContent = t('optional_short');
+      dim2MandatoryBadge.style.background = 'var(--gray)';
+    }
   }
   
   // 根据是否有下属，动态调整维度三必填标签
@@ -1401,6 +1412,7 @@ async function loadDim2() {
   renderDim2();
 }
 function renderDim2() {
+  refreshDimBadges();
   const container = document.getElementById('dim2-items');
   if (dim2Data.length === 0) {
     container.innerHTML = `<div class="empty-state"><div class="icon">📝</div><p>${t('no_records')}</p></div>`;
@@ -1408,13 +1420,20 @@ function renderDim2() {
     // Only render the first record (each user has at most 1 dim2 record)
     container.innerHTML = renderDim2Item(dim2Data[0], 0);
   }
+  // Update button states based on submission status
+  const isSubmitted = dim2Data.length > 0 && dim2Data[0].submitted;
+  const draftBtn = document.getElementById('btn-dim2-draft');
+  if (draftBtn) draftBtn.disabled = isSubmitted;
   updateBadges();
 }
 function renderDim2Item(item, idx) {
+  const isLocked = item.submitted;
+  const disabledAttr = isLocked ? 'disabled' : '';
+  const readOnlyAttr = isLocked ? 'readonly style="background:#f0f0f0;cursor:not-allowed"' : '';
   const scores = DIM2_DIMS.map((d,i) => `
     <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
       <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
-        onclick="setDim2Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+        ${disabledAttr} onclick="setDim2Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
     `).join('')}</div></td>
   `).join('');
   const sc = DIM2_DIMS.filter(d => (item[d]||0) > 0).length;
@@ -1433,21 +1452,27 @@ function renderDim2Item(item, idx) {
       <div class="section-body">
         ${!currentUser.has_manager ? `
         <div class="info-row">
-          <div class="form-group"><label>${t('manager_name')}</label><input type="text" value="${esc(item.manager_name||'')}" onchange="updateDim2Field(${idx},'manager_name',this.value)" placeholder="${t('manager_name_placeholder') || '请输入上级姓名'}"></div>
+          <div class="form-group"><label>${t('manager_name')}</label><input type="text" value="${esc(item.manager_name||'')}" ${readOnlyAttr} onchange="updateDim2Field(${idx},'manager_name',this.value)" placeholder="${t('manager_name_placeholder') || '请输入上级姓名'}"></div>
         </div>
         ` : ''}
         <table class="score-table">
           <thead><tr><th>${t('scoring_label')}</th>${DIM2_DIM_KEYS.map(k => `<th>${t(k)}</th>`).join('')}</tr></thead>
           <tbody><tr><td style="font-weight:600;text-align:center;background:#f8f8f8;">${t('scoring_label')}</td>${scores}</tr></tbody>
         </table>
-        <div class="form-group"><label>${t('strengths_good')}</label><textarea onchange="updateDim2Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
-        <div class="form-group"><label>${t('improvements_required')}</label><textarea onchange="updateDim2Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
-        <div class="form-group"><label>${t('suggestions_opt')}</label><textarea onchange="updateDim2Field(${idx},'suggestions',this.value)">${esc(item.suggestions||'')}</textarea></div>
+        <div class="form-group"><label>${t('strengths_good')}</label><textarea ${readOnlyAttr} onchange="updateDim2Field(${idx},'strengths',this.value)">${esc(item.strengths||'')}</textarea></div>
+        <div class="form-group"><label>${t('improvements_required')}</label><textarea ${readOnlyAttr} onchange="updateDim2Field(${idx},'improvements',this.value)">${esc(item.improvements||'')}</textarea></div>
+        <div class="form-group"><label>${t('suggestions_opt')}</label><textarea ${readOnlyAttr} onchange="updateDim2Field(${idx},'suggestions',this.value)">${esc(item.suggestions||'')}</textarea></div>
       </div>
     </div>`;
 }
-function updateDim2Field(idx, field, value) { dim2Data[idx][field] = value; scheduleAutoSave(); }
-function setDim2Score(idx, field, val) { dim2Data[idx][field] = val; renderDim2(); scheduleAutoSave(); }
+function updateDim2Field(idx, field, value) {
+  if (dim2Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim2Data[idx][field] = value; scheduleAutoSave();
+}
+function setDim2Score(idx, field, val) {
+  if (dim2Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim2Data[idx][field] = val; renderDim2(); scheduleAutoSave();
+}
 async function deleteDim2(idx) {
   if (!confirm(t('delete_confirm_short'))) return;
   const item = dim2Data[idx];
@@ -1460,6 +1485,10 @@ async function deleteDim2(idx) {
 async function saveDim2(submit) {
   const item = dim2Data[0];
   if (!item) return;
+  // 已提交的不允许保存草稿（防止绕过提交锁）
+  if (!submit && item.submitted) {
+    showToast(t('submitted_cannot_draft'), 'error'); return;
+  }
   item.submitted = submit;
   // 仅当用户有上级时，提交才验证必填字段；无上级时维度二为选填
   if (submit && currentUser.has_manager && (!item.strengths || !item.improvements)) {
@@ -1482,6 +1511,7 @@ async function loadDim3() {
   renderDim3();
 }
 function renderDim3() {
+  refreshDimBadges();
   const container = document.getElementById('dim3-items');
   const autoItems = dim3Data.filter(i => i.auto_created);
   const manualItems = dim3Data.filter(i => !i.auto_created);
@@ -1499,13 +1529,20 @@ function renderDim3() {
     }
     container.innerHTML = html;
   }
+  // Update button states: disable draft if all items submitted
+  const allSubmitted = dim3Data.length > 0 && dim3Data.every(i => i.submitted);
+  const draftBtn = document.getElementById('btn-dim3-draft');
+  if (draftBtn) draftBtn.disabled = allSubmitted;
   updateBadges();
 }
 function renderDim3Item(item, idx, isLocked) {
+  const isSubmitted = item.submitted;
+  const lockInput = isLocked || isSubmitted;
+  const disabledScore = isSubmitted ? 'disabled' : '';
   const scores = DIM3_DIMS.map((d,i) => `
     <td><div class="score-group">${[5,4,3,2,1,0].map(s => `
       <button class="score-btn${s===0?' na':''} ${(item[d]||0)===s?'selected':''}"
-        onclick="setDim3Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
+        ${disabledScore} onclick="setDim3Score(${idx},'${d}',${s})" title="${scoreLabel(s)}">${s===0?'N/A':s}</button>
     `).join('')}</div></td>
   `).join('');
   const sc = DIM3_DIMS.filter(d => (item[d]||0) > 0).length;
@@ -1513,8 +1550,8 @@ function renderDim3Item(item, idx, isLocked) {
   const avg = sc > 0 ? (sm/sc).toFixed(1) : '-';
   const nameDisplay = item.subordinate_name || t('new_eval');
   const lockIcon = isLocked ? ' 🔒' : '';
-  const lockedAttr = isLocked ? 'readonly style="background:#f0f0f0;"' : '';
-  const deleteBtn = isLocked ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteDim3(${idx})" ${item.submitted?'disabled':''}>${t('delete_item')}</button>`;
+  const lockedAttr = lockInput ? 'readonly style="background:#f0f0f0;cursor:not-allowed"' : '';
+  const deleteBtn = isLocked ? '' : (isSubmitted ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteDim3(${idx})">${t('delete_item')}</button>`);
   return `
     <div class="section-card">
       <div class="section-header">
@@ -1545,8 +1582,14 @@ function addDim3Item() {
   dim3Data.push({ subordinate_name:'', subordinate_position:'', score_quality:0, score_professional:0, score_initiative:0, score_teamwork:0, score_problem_solving:0, score_customer:0, strengths:'', improvements:'', submitted:false, auto_created:false });
   renderDim3();
 }
-function updateDim3Field(idx, field, value) { dim3Data[idx][field] = value; scheduleAutoSave(); }
-function setDim3Score(idx, field, val) { dim3Data[idx][field] = val; renderDim3(); scheduleAutoSave(); }
+function updateDim3Field(idx, field, value) {
+  if (dim3Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim3Data[idx][field] = value; scheduleAutoSave();
+}
+function setDim3Score(idx, field, val) {
+  if (dim3Data[idx].submitted) { showToast(t('submitted_locked'), 'error'); return; }
+  dim3Data[idx][field] = val; renderDim3(); scheduleAutoSave();
+}
 async function deleteDim3(idx) {
   if (!confirm(t('delete_confirm_short'))) return;
   const item = dim3Data[idx];
@@ -1557,9 +1600,19 @@ async function deleteDim3(idx) {
   renderDim3();
 }
 async function saveDim3(submit) {
+  // 已提交项不允许保存草稿（防止绕过提交锁）
+  if (!submit) {
+    const anySubmitted = dim3Data.some(i => i.submitted);
+    if (anySubmitted) {
+      showToast(t('submitted_cannot_draft'), 'error'); return;
+    }
+  }
   for (let i = 0; i < dim3Data.length; i++) {
     const item = dim3Data[i];
-    item.submitted = submit;
+    // Draft save: skip already submitted items; Submit: mark all
+    if (submit) {
+      item.submitted = true;
+    }
     if (submit && (!item.subordinate_name || !item.strengths || !item.improvements)) {
       showToast(t('submit_validation_full'), 'error'); return;
     }
@@ -1684,6 +1737,31 @@ function startAutoSave() {
 }
 
 // ============ BADGES ============
+function refreshDimBadges() {
+  // Refresh Dim2 mandatory/optional badge
+  const dim2Badge = document.querySelector('[data-tab="dim2"] .badge.mandatory');
+  if (dim2Badge && currentUser) {
+    if (currentUser.has_manager) {
+      dim2Badge.textContent = t('mandatory_short');
+      dim2Badge.style.background = 'var(--danger)';
+    } else {
+      dim2Badge.textContent = t('optional_short');
+      dim2Badge.style.background = 'var(--gray)';
+    }
+  }
+  // Refresh Dim3 mandatory/optional badge
+  const dim3Badge = document.querySelector('[data-tab="dim3"] .badge.mandatory');
+  if (dim3Badge && currentUser) {
+    if (currentUser.has_subordinates) {
+      dim3Badge.textContent = t('mandatory_short');
+      dim3Badge.style.background = 'var(--danger)';
+    } else {
+      dim3Badge.textContent = t('optional_short');
+      dim3Badge.style.background = 'var(--gray)';
+    }
+  }
+}
+
 function updateBadges() {
   const d1 = dim1Data.filter(i => i.submitted).length;
   const d2 = dim2Data.filter(i => i.submitted).length;
