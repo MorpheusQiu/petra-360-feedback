@@ -67,6 +67,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe
 .nav-tab .badge { display:inline-block; background:var(--success); color:white; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:6px; }
 .nav-tab .badge.warn { background:var(--warning); }
 .nav-tab .badge.mandatory { background:var(--danger); font-size:10px; padding:1px 5px; }
+.nav-tab .badge.optional { background:var(--gray); font-size:10px; padding:1px 5px; }
 
 /* ====== MAIN CONTENT ====== */
 .main-content { max-width:1200px; margin:0 auto; padding:24px; }
@@ -612,6 +613,7 @@ const I18N = {
     dim3_downward_label: '对下级',
     // New: mandatory & auto-bind
     mandatory_short: '必填',
+    optional_short: '非必填',
     overall_complete_label: '必修维度已完成',
     overall_complete_msg: '维度二（对上级反馈）和维度三（上级对下级）均已提交，360反馈已纳入完成状态！',
     overall_incomplete_label: '必修维度未完成',
@@ -869,6 +871,7 @@ const I18N = {
     dim3_downward_label: 'Downward',
     // New: mandatory & auto-bind
     mandatory_short: 'Required',
+    optional_short: 'Optional',
     overall_complete_label: 'Mandatory Sections Complete',
     overall_complete_msg: 'Both Dimension 2 (Upward Feedback) and Dimension 3 (Downward Feedback) have been submitted. Your 360 feedback is now complete!',
     overall_incomplete_label: 'Mandatory Sections Incomplete',
@@ -1176,7 +1179,14 @@ async function initApp() {
   // 根据是否有下属，动态调整维度三必填标签
   const dim3MandatoryBadge = document.querySelector('[data-tab="dim3"] .badge.mandatory');
   if (dim3MandatoryBadge) {
-    dim3MandatoryBadge.style.display = currentUser.has_subordinates ? 'inline-block' : 'none';
+    if (currentUser.has_subordinates) {
+      dim3MandatoryBadge.style.display = 'inline-block';
+      dim3MandatoryBadge.textContent = t('mandatory_short');
+      dim3MandatoryBadge.style.background = 'var(--danger)';
+    } else {
+      dim3MandatoryBadge.textContent = t('optional_short');
+      dim3MandatoryBadge.style.background = 'var(--gray)';
+    }
   }
   
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'sub_admin';
@@ -1417,6 +1427,7 @@ function renderDim2Item(item, idx) {
         <div style="display:flex;align-items:center;gap:12px;">
           <span style="font-size:13px;color:var(--gray);">${t('avg_score')}: <strong style="color:var(--primary);">${avg}</strong></span>
           <span class="status-tag ${item.submitted?'done':'pending'}">${item.submitted?t('submitted'):t('draft')}</span>
+          ${item.submitted ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteDim2(${idx})">${t('delete_item')}</button>`}
         </div>
       </div>
       <div class="section-body">
@@ -1437,6 +1448,15 @@ function renderDim2Item(item, idx) {
 }
 function updateDim2Field(idx, field, value) { dim2Data[idx][field] = value; scheduleAutoSave(); }
 function setDim2Score(idx, field, val) { dim2Data[idx][field] = val; renderDim2(); scheduleAutoSave(); }
+async function deleteDim2(idx) {
+  if (!confirm(t('delete_confirm_short'))) return;
+  const item = dim2Data[idx];
+  if (item.id) {
+    try { await api(`/api/dim2/${item.id}`, {method:'DELETE'}); } catch(e) { showToast(e.message,'error'); return; }
+  }
+  dim2Data = [];
+  renderDim2();
+}
 async function saveDim2(submit) {
   const item = dim2Data[0];
   if (!item) return;
@@ -1522,7 +1542,7 @@ function renderDim3Item(item, idx, isLocked) {
     </div>`;
 }
 function addDim3Item() {
-  dim3Data.push({ subordinate_name:'', subordinate_position:'', score_quality:0, score_professional:0, score_initiative:0, score_teamwork:0, score_problem_solving:0, score_customer:0, strengths:'', improvements:'', submitted:false });
+  dim3Data.push({ subordinate_name:'', subordinate_position:'', score_quality:0, score_professional:0, score_initiative:0, score_teamwork:0, score_problem_solving:0, score_customer:0, strengths:'', improvements:'', submitted:false, auto_created:false });
   renderDim3();
 }
 function updateDim3Field(idx, field, value) { dim3Data[idx][field] = value; scheduleAutoSave(); }
