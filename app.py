@@ -220,6 +220,35 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Migration: update passwords to per-user Excel defaults (2026-06-22)
+    # This must run after the settings table is created but before seed_users check,
+    # so existing Render deployments get the new passwords without DB wipe.
+    pw_migrated = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
+    if not pw_migrated:
+        _default_passwords = {
+            'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
+            'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
+            'Katrina': 'petra2026641',
+            'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
+            'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
+            'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
+            'Frank': 'petra2026348', 'Jim': 'petra2026100',
+            'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
+            'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
+            'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
+            'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
+        }
+        _updated = 0
+        for _name, _pw in _default_passwords.items():
+            db.execute(
+                "UPDATE users SET password_hash=? WHERE en_name=? AND status='active'",
+                (generate_password_hash(_pw), _name)
+            )
+            _updated += 1
+        db.execute("INSERT OR IGNORE INTO settings VALUES ('pw_migrated_to_excel', '1')")
+        db.commit()
+        print(f"[Migration] Updated {_updated} users to per-user default passwords (Excel).")
+
     # Check if users exist
     count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     if count == 0:
@@ -647,7 +676,7 @@ def list_users():
 @require_auth
 def list_managers():
     db = get_db()
-    mgrs = db.execute("SELECT DISTINCT en_name, ch_name FROM users WHERE en_name IN ('Mursal','Ali','Rita','Chris') OR role='admin' ORDER BY id").fetchall()
+    mgrs = db.execute("SELECT DISTINCT en_name, ch_name FROM users WHERE en_name IN ('Mursal','Ali','Rita') ORDER BY id").fetchall()
     return jsonify([dict(m) for m in mgrs])
 
 @app.route('/api/my-subordinates', methods=['GET'])
