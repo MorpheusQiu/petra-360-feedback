@@ -209,6 +209,7 @@ def get_db():
             g.db = sqlite3.connect(DB_PATH)
             g.db.row_factory = sqlite3.Row
             g.db.execute("PRAGMA journal_mode=WAL")
+        _ensure_db()
     return g.db
 
 @app.teardown_appcontext
@@ -617,7 +618,15 @@ def require_super_admin(f):
     return decorated
 
 # ========== Init ==========
-init_db()
+_db_initialized = False
+
+def _ensure_db():
+    """Lazy init: create tables on first request, not at import time.
+    Prevents crash-on-startup if Turso is temporarily unreachable."""
+    global _db_initialized
+    if not _db_initialized:
+        init_db()
+        _db_initialized = True
 
 # ========== Static Files ==========
 @app.route('/api/health')
