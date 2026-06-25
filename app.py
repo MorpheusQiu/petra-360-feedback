@@ -808,28 +808,32 @@ def debug_db_state():
         import traceback
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
-@app.route('/api/debug/force-seed', methods=['POST'])
+@app.route('/api/debug/force-seed', methods=['GET','POST'])
 def debug_force_seed():
-    """Diagnostic: force re-seed all 29 users into the database.
-    Resets _seed_verified flag so subsequent get_db() calls also re-verify."""
+    """Force re-seed all 29 users. Clears feedback data first to avoid FK constraint."""
     global _seed_verified
     try:
         db = get_db()
-        # Clear existing users first (preserving settings, feedback data, admin_logs)
+        # Delete in FK dependency order (child tables first)
+        db.execute("DELETE FROM dim1_peer")
+        db.execute("DELETE FROM dim2_upward")
+        db.execute("DELETE FROM dim3_downward")
+        db.execute("DELETE FROM dim4_leadership")
+        db.execute("DELETE FROM admin_logs")
+        db.execute("DELETE FROM sub_admins")
         db.execute("DELETE FROM users")
         seed_users(db)
-        _seed_verified = True  # Mark as verified after successful seed
-        # Verify count safely
+        _seed_verified = True
         row = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
         count = row['cnt'] if row else 0
         return jsonify({
             'ok': True,
             'users_seeded': count,
-            'message': f'Successfully seeded {count} users.'
+            'message': f'Successfully seeded {count} users (feedback data cleared).'
         })
     except Exception as e:
         import traceback
-        _seed_verified = False  # Allow retry
+        _seed_verified = False
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/api/login', methods=['POST'])
