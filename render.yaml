@@ -1,13 +1,10 @@
 # Render 部署配置
 # 文档: https://render.com/docs/blueprint-spec
 #
-# ⚠️ 重要提示 (Important):
-# Render 免费层的文件系统是临时的(ephemeral)。每次部署(代码推送触发)或冷启动都会
-# 重建数据库，所有用户的密码修改将丢失。如需保持密码持久化，请:
-#   方案A: 在反馈填写期(6.22-6.30)将 autoDeploy 设为 false，避免意外部署
-#   方案B: 附加 Render Disk 并将 DB_PATH 设置为 /var/data/feedback.db
-#   方案C: 使用外部数据库(如 Render PostgreSQL, 免费层90天有效)
-# 当前使用 INIT_DEFAULT_PASSWORD 作为后备默认密码。
+# 数据持久化方案:
+#   已启用 Render Disk (1GB, 挂载到 /var/data)，DB_PATH 指向 /var/data/feedback.db。
+#   部署、冷启动、实例迁移均不会丢失数据。
+#   Render Disk 费用: $0.25/GB/月（约 ¥1.8/月）
 
 services:
   - type: web
@@ -26,12 +23,18 @@ services:
       - key: SECRET_KEY
         generateValue: true    # Render 自动生成 64 位随机密钥
       - key: DB_PATH
-        value: ""              # 持久化数据库路径（如附加了 Render Disk: /var/data/feedback.db）
+        value: "/var/data/feedback.db"
       - key: PYTHON_VERSION
         value: "3.13.12"
 
     # 健康检查
     healthCheckPath: /api/health
 
-    # 自动部署: 反馈填写期(6.22-6.30)建议设为 false 以避免数据库被清除
-    autoDeploy: true
+    # 反馈填写期(6.22-6.30)关闭自动部署，避免意外推送触发部署
+    autoDeploy: false
+
+    # 持久化磁盘: 1GB 挂载到 /var/data，存放 SQLite 数据库
+    disk:
+      name: petra-data
+      mountPath: /var/data
+      sizeGB: 1
