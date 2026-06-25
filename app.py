@@ -697,6 +697,54 @@ def index():
     return app.send_static_file('index.html')
 
 # ========== Auth API ==========
+
+# Temporary diagnostic endpoint — remove after debugging
+@app.route('/api/debug/db-state', methods=['GET'])
+def debug_db_state():
+    """Diagnostic: show Turso DB state for login troubleshooting."""
+    try:
+        db = get_db()
+        result = {}
+
+        # 1. Total user count
+        row = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
+        result['total_users'] = row['cnt'] if row else 'NULL'
+
+        # 2. Check Morpheus
+        row = db.execute("SELECT * FROM users WHERE en_name=?", ('Morpheus',)).fetchone()
+        if row:
+            ph = row['password_hash']
+            result['morpheus'] = {
+                'exists': True,
+                'id': row['id'],
+                'ch_name': row['ch_name'],
+                'department': row['department'],
+                'role': row['role'],
+                'admin_level': row['admin_level'],
+                'status': row['status'],
+                'password_hash_prefix': ph[:30] + '...' if ph else 'EMPTY',
+                'password_hash_len': len(ph) if ph else 0,
+            }
+        else:
+            result['morpheus'] = {'exists': False}
+
+        # 3. Check settings
+        row = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
+        result['pw_migrated'] = row['value'] if row else 'NOT SET'
+
+        # 4. First 5 users
+        rows = db.execute("SELECT en_name, ch_name, status, role, substr(password_hash,1,20) as pw_preview FROM users LIMIT 5").fetchall()
+        result['sample_users'] = [dict(r) for r in rows]
+
+        # 5. All table names
+        rows = db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+        result['tables'] = [r['name'] for r in rows]
+
+        return jsonify({'ok': True, 'data': result})
+    except Exception as e:
+        import traceback
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
