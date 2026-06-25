@@ -763,23 +763,45 @@ def debug_db_state():
                 'role': row['role'],
                 'admin_level': row['admin_level'],
                 'status': row['status'],
-                'password_hash_prefix': ph[:30] + '...' if ph else 'EMPTY',
-                'password_hash_len': len(ph) if ph else 0,
+                'password_hash_prefix': (str(ph)[:30] + '...') if ph else 'EMPTY',
+                'password_hash_len': len(str(ph)) if ph else 0,
             }
         else:
             result['morpheus'] = {'exists': False}
 
         # 3. Check settings
-        row = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
-        result['pw_migrated'] = row['value'] if row else 'NOT SET'
+        row = db.execute("SELECT value FROM settings WHERE key='pw_migrated'").fetchone()
+        result['pw_migrated'] = str(row['value']) if row else 'NOT SET'
 
-        # 4. First 5 users
-        rows = db.execute("SELECT en_name, ch_name, status, role, substr(password_hash,1,20) as pw_preview FROM users LIMIT 5").fetchall()
-        result['sample_users'] = [dict(r) for r in rows]
+        # 4. First 5 users (password prefix safely converted to string)
+        rows = db.execute("SELECT en_name, ch_name, status, role FROM users LIMIT 5").fetchall()
+        sample = []
+        for r in rows:
+            d = dict(r)
+            ph = d.get('password_hash', '')
+            d['pw_prefix'] = str(ph)[:20] if ph else 'EMPTY'
+            d.pop('password_hash', None)
+            sample.append(d)
+        result['sample_users'] = sample
 
-        # 5. All table names
+        # 5. All table names + feedback counts (persistence check)
         rows = db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
         result['tables'] = [r['name'] for r in rows]
+        # Feedback persistence check
+        for tbl in ['dim1_peer', 'dim2_upward', 'dim3_downward', 'dim4_leadership']:
+            try:
+                cnt_row = db.execute(f"SELECT COUNT(*) as cnt FROM {tbl}").fetchone()
+                result[f'{tbl}_count'] = cnt_row['cnt'] if cnt_row else 'ERR'
+            except Exception:
+                result[f'{tbl}_count'] = 'ERR'
+        # Recent dim2 submissions (for persistence verification)
+        try:
+            recent = db.execute(
+                "SELECT evaluator_id, evaluator_name, updated_at FROM dim2_upward ORDER BY updated_at DESC LIMIT 5"
+            ).fetchall()
+            result['recent_dim2'] = [dict(r) for r in recent]
+        except Exception:
+            result['recent_dim2'] = 'ERR'
 
         return jsonify({'ok': True, 'data': result})
     except Exception as e:
@@ -797,8 +819,9 @@ def debug_force_seed():
         db.execute("DELETE FROM users")
         seed_users(db)
         _seed_verified = True  # Mark as verified after successful seed
-        # Verify
-        count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        # Verify count safely
+        row = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
+        count = row['cnt'] if row else 0
         return jsonify({
             'ok': True,
             'users_seeded': count,
