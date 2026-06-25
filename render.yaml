@@ -2,9 +2,9 @@
 # 文档: https://render.com/docs/blueprint-spec
 #
 # 数据持久化方案:
-#   已启用 Render Disk (1GB, 挂载到 /var/data)，DB_PATH 指向 /var/data/feedback.db。
+#   使用 Turso（libsql 云端 SQLite）存储数据。
+#   Turso 免费层: 5GB 存储、5 亿行读/月，数据独立于 Render 实例生命周期。
 #   部署、冷启动、实例迁移均不会丢失数据。
-#   Render Disk 费用: $0.25/GB/月（约 ¥1.8/月）
 
 services:
   - type: web
@@ -22,19 +22,19 @@ services:
         value: "0.0.0.0"
       - key: SECRET_KEY
         generateValue: true    # Render 自动生成 64 位随机密钥
-      - key: DB_PATH
-        value: "/var/data/feedback.db"
+      - key: TURSO_DATABASE_URL
+        sync: false
+        value: "libsql://petra-360-feedback-morpheusqiu.aws-ap-northeast-1.turso.io"
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+        # ⚠️ 安全提示: 请勿在 yaml 中明文填写 token（公开仓库风险）。
+        #    部署后在 Render Dashboard → petra-360-feedback → Environment 中手动填入。
+        value: ""
       - key: PYTHON_VERSION
         value: "3.13.12"
 
     # 健康检查
     healthCheckPath: /api/health
 
-    # 反馈填写期(6.22-6.30)关闭自动部署，避免意外推送触发部署
+    # 填写期间关闭自动部署，避免意外推送触发部署
     autoDeploy: false
-
-    # 持久化磁盘: 1GB 挂载到 /var/data，存放 SQLite 数据库
-    disk:
-      name: petra-data
-      mountPath: /var/data
-      sizeGB: 1

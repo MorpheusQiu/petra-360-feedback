@@ -14,6 +14,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import libsql_experimental as libsql
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
@@ -40,6 +41,85 @@ def _verify_token(token, expected_prefix):
             return None
     return None
 
+# ========== Turso remote database support ==========
+TURSO_URL = os.environ.get('TURSO_DATABASE_URL', '')
+TURSO_TOKEN = os.environ.get('TURSO_AUTH_TOKEN', '')
+USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
+
+
+class TursoRow:
+    """Row wrapper that supports both index and name-based access like sqlite3.Row."""
+    def __init__(self, columns, values):
+        self._columns = columns
+        self._values = values
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        if isinstance(key, str):
+            return self._values[self._columns.index(key)]
+        raise TypeError(f"Unsupported key type: {type(key)}")
+
+    def keys(self):
+        return self._columns
+
+    def __len__(self):
+        return len(self._values)
+
+    def __iter__(self):
+        return iter(self._values)
+
+
+class TursoCursor:
+    """Cursor wrapper compatible with sqlite3.Cursor."""
+    def __init__(self, result_set):
+        self.columns = [c[0] for c in (result_set.columns or [])]
+        self.rows = [TursoRow(self.columns, row) for row in (result_set.rows or [])]
+        self._pos = 0
+        self.lastrowid = getattr(result_set, 'last_insert_rowid', 0) or 0
+
+    def fetchone(self):
+        if self._pos >= len(self.rows):
+            return None
+        row = self.rows[self._pos]
+        self._pos += 1
+        return row
+
+    def fetchall(self):
+        result = self.rows[self._pos:]
+        self._pos = len(self.rows)
+        return result
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class TursoConnection:
+    """Turso database connection wrapper, sqlite3-compatible API."""
+    def __init__(self, url, token):
+        self._con = libsql.connect(url, auth_token=token)
+
+    def execute(self, sql, params=None):
+        if params is None:
+            params = []
+        elif not isinstance(params, (list, tuple)):
+            params = [params]
+        result = self._con.execute(sql, list(params))
+        return TursoCursor(result)
+
+    def executescript(self, sql):
+        """Execute multiple SQL statements by splitting on semicolons."""
+        statements = [s.strip() for s in sql.split(';') if s.strip()]
+        for stmt in statements:
+            self._con.execute(stmt)
+
+    def commit(self):
+        pass  # Turso remote auto-commits every statement
+
+    def close(self):
+        pass  # No persistent connection to close with HTTP-based Turso
+
+
 DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get('DB_PATH') or os.path.join(DB_DIR, 'feedback.db')
 os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
@@ -48,13 +128,17 @@ os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, ex
 _RECOVERY_INFO = None
 
 # ========== Database ==========
-import sqlite3
 
 def get_db():
     if 'db' not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA journal_mode=WAL")
+        if USE_TURSO:
+            g.db = TursoConnection(TURSO_URL, TURSO_TOKEN)
+        else:
+            import sqlite3
+            os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA journal_mode=WAL")
     return g.db
 
 @app.teardown_appcontext
@@ -63,8 +147,12 @@ def close_db(e):
     if db: db.close()
 
 def init_db():
-    db = sqlite3.connect(DB_PATH)
-    db.execute("PRAGMA journal_mode=WAL")
+    if USE_TURSO:
+        db = TursoConnection(TURSO_URL, TURSO_TOKEN)
+    else:
+        import sqlite3
+        db = sqlite3.connect(DB_PATH)
+        db.execute("PRAGMA journal_mode=WAL")
     db.executescript('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,26 +286,29 @@ def init_db():
             value TEXT
         );
     ''')
-    db.commit()
+    if not USE_TURSO:
+        db.commit()
 
     # Migration: add admin_level column if not exists (for existing databases)
     try:
         db.execute("ALTER TABLE users ADD COLUMN admin_level TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
+    except Exception:
         pass  # column already exists
 
     # Migration: add auto_created column to dim3_downward for locked subordinate entries
     try:
         db.execute("ALTER TABLE dim3_downward ADD COLUMN auto_created BOOLEAN DEFAULT 0")
-        db.commit()
-    except sqlite3.OperationalError:
+        if not USE_TURSO:
+            db.commit()
+    except Exception:
         pass  # column already exists
 
     # Migrate: add lang column if not exists
     try:
         db.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'zh'")
-        db.commit()
-    except sqlite3.OperationalError:
+        if not USE_TURSO:
+            db.commit()
+    except Exception:
         pass  # Column already exists
 
     # Check if users exist — seed_users sets per-user passwords from PB360 Excel
@@ -258,8 +349,9 @@ def init_db():
     # Seed settings
     db.execute("INSERT OR IGNORE INTO settings VALUES ('submission_open', '1')")
     db.execute("INSERT OR IGNORE INTO settings VALUES ('cycle_name', '2026H1')")
-    db.commit()
-    db.close()
+    if not USE_TURSO:
+        db.commit()
+        db.close()
 
 def seed_users(db):
     """Initialize database with default employees. Each gets a unique random password."""
@@ -483,14 +575,22 @@ def db_info():
     """Return database status. Super admin sees recovery info if DB was recreated."""
     db = get_db()
     user_count = db.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0]
-    db_file_exists = os.path.exists(DB_PATH)
-    db_file_size = os.path.getsize(DB_PATH) if db_file_exists else 0
-    resp = {
-        'db_path': DB_PATH,
-        'db_exists': db_file_exists,
-        'db_size_bytes': db_file_size,
-        'user_count': user_count
-    }
+    if USE_TURSO:
+        resp = {
+            'db_type': 'turso',
+            'turso_url': TURSO_URL.rsplit('.', 1)[0].split('://', 1)[-1] if TURSO_URL else '',
+            'user_count': user_count
+        }
+    else:
+        db_file_exists = os.path.exists(DB_PATH)
+        db_file_size = os.path.getsize(DB_PATH) if db_file_exists else 0
+        resp = {
+            'db_type': 'sqlite',
+            'db_path': DB_PATH,
+            'db_exists': db_file_exists,
+            'db_size_bytes': db_file_size,
+            'user_count': user_count
+        }
     if g.user.get('admin_level') == 'super_admin' and _RECOVERY_INFO:
         resp['recovery'] = _RECOVERY_INFO
     return jsonify(resp)
