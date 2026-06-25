@@ -14,7 +14,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import libsql_experimental as libsql
+import urllib.request
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
@@ -45,6 +45,8 @@ def _verify_token(token, expected_prefix):
 TURSO_URL = os.environ.get('TURSO_DATABASE_URL', '')
 TURSO_TOKEN = os.environ.get('TURSO_AUTH_TOKEN', '')
 USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
+# Convert libsql:// → https:// for HTTP API
+TURSO_HTTP_URL = TURSO_URL.replace('libsql://', 'https://') if TURSO_URL else ''
 
 
 class TursoRow:
@@ -71,12 +73,27 @@ class TursoRow:
 
 
 class TursoCursor:
-    """Cursor wrapper compatible with sqlite3.Cursor."""
-    def __init__(self, result_set):
-        self.columns = [c[0] for c in (result_set.columns or [])]
-        self.rows = [TursoRow(self.columns, row) for row in (result_set.rows or [])]
+    """Cursor wrapper compatible with sqlite3.Cursor. Accepts Turso HTTP API result dict."""
+    def __init__(self, result_data=None):
+        if result_data is None:
+            self.columns = []
+            self.rows = []
+            self._pos = 0
+            self.lastrowid = 0
+            return
+        cols = result_data.get('cols', [])
+        self.columns = [c['name'] for c in cols] if cols else []
+        row_data = result_data.get('rows', [])
+        self.rows = [TursoRow(self.columns, list(row)) for row in row_data]
         self._pos = 0
-        self.lastrowid = getattr(result_set, 'last_insert_rowid', 0) or 0
+        rid = result_data.get('last_insert_rowid')
+        if rid is not None:
+            try:
+                self.lastrowid = int(rid)
+            except (ValueError, TypeError):
+                self.lastrowid = 0
+        else:
+            self.lastrowid = 0
 
     def fetchone(self):
         if self._pos >= len(self.rows):
@@ -95,29 +112,81 @@ class TursoCursor:
 
 
 class TursoConnection:
-    """Turso database connection wrapper, sqlite3-compatible API."""
-    def __init__(self, url, token):
-        self._con = libsql.connect(url, auth_token=token)
+    """Turso database connection via HTTP API (zero native deps). sqlite3-compatible API."""
+
+    def __init__(self, http_url, token):
+        self._http_url = http_url
+        self._token = token
+
+    @staticmethod
+    def _arg_type(val):
+        """Convert a Python value to Turso HTTP API typed argument dict."""
+        if val is None:
+            return {"type": "null"}
+        if isinstance(val, bool):
+            return {"type": "integer", "value": "1" if val else "0"}
+        if isinstance(val, int):
+            return {"type": "integer", "value": str(val)}
+        if isinstance(val, float):
+            return {"type": "float", "value": str(val)}
+        if isinstance(val, bytes):
+            import base64
+            return {"type": "blob", "base64": base64.b64encode(val).decode()}
+        return {"type": "text", "value": str(val)}
+
+    def _api_call(self, pipeline_requests):
+        """Send a pipeline of requests to Turso HTTP API. Returns parsed JSON response."""
+        body = {"requests": pipeline_requests}
+        data = json.dumps(body).encode('utf-8')
+        req = urllib.request.Request(
+            f"{self._http_url}/v2/pipeline",
+            data=data,
+            headers={
+                'Authorization': f'Bearer {self._token}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            err_body = ''
+            try:
+                err_body = e.read().decode('utf-8')
+            except Exception:
+                pass
+            raise Exception(f"Turso HTTP {e.code}: {err_body or str(e)}")
 
     def execute(self, sql, params=None):
+        """Execute a single SQL statement. Returns TursoCursor."""
         if params is None:
             params = []
         elif not isinstance(params, (list, tuple)):
             params = [params]
-        result = self._con.execute(sql, list(params))
-        return TursoCursor(result)
+
+        args = [self._arg_type(p) for p in params]
+        resp = self._api_call([
+            {"type": "execute", "stmt": {"sql": sql, "args": args}},
+            {"type": "close"},
+        ])
+        results = resp.get('results', [])
+        return TursoCursor(results[0] if results else None)
 
     def executescript(self, sql):
-        """Execute multiple SQL statements by splitting on semicolons."""
+        """Execute multiple SQL statements in a single pipeline (for init_db)."""
         statements = [s.strip() for s in sql.split(';') if s.strip()]
-        for stmt in statements:
-            self._con.execute(stmt)
+        if not statements:
+            return
+        pipeline = [{"type": "execute", "stmt": {"sql": s}} for s in statements]
+        pipeline.append({"type": "close"})
+        self._api_call(pipeline)
 
     def commit(self):
-        pass  # Turso remote auto-commits every statement
+        pass  # Turso HTTP API: each /v2/pipeline auto-commits
 
     def close(self):
-        pass  # No persistent connection to close with HTTP-based Turso
+        pass  # Stateless HTTP, no persistent connection
 
 
 DB_DIR = os.environ.get('DB_DIR', os.path.dirname(os.path.abspath(__file__)))
@@ -132,7 +201,7 @@ _RECOVERY_INFO = None
 def get_db():
     if 'db' not in g:
         if USE_TURSO:
-            g.db = TursoConnection(TURSO_URL, TURSO_TOKEN)
+            g.db = TursoConnection(TURSO_HTTP_URL, TURSO_TOKEN)
         else:
             import sqlite3
             os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, exist_ok=True)
@@ -148,7 +217,7 @@ def close_db(e):
 
 def init_db():
     if USE_TURSO:
-        db = TursoConnection(TURSO_URL, TURSO_TOKEN)
+        db = TursoConnection(TURSO_HTTP_URL, TURSO_TOKEN)
     else:
         import sqlite3
         db = sqlite3.connect(DB_PATH)
