@@ -51,16 +51,46 @@ TURSO_HTTP_URL = TURSO_URL.replace('libsql://', 'https://') if TURSO_URL else ''
 
 
 class TursoRow:
-    """Row wrapper that supports both index and name-based access like sqlite3.Row."""
+    """Row wrapper that supports both index and name-based access like sqlite3.Row.
+    Automatically unwraps Turso typed-value format: {"type":"text","value":"..."} -> plain value.
+    """
+    @staticmethod
+    def _unwrap(val):
+        """Convert Turso typed value dict to plain Python value."""
+        if not isinstance(val, dict):
+            return val
+        t = val.get('type', '')
+        if t == 'text':
+            return val.get('value', '')
+        if t == 'integer':
+            try:
+                return int(val.get('value', '0'))
+            except (ValueError, TypeError):
+                return val.get('value', 0)
+        if t == 'float':
+            try:
+                return float(val.get('value', '0'))
+            except (ValueError, TypeError):
+                return val.get('value', 0.0)
+        if t == 'null':
+            return None
+        if t == 'blob':
+            import base64
+            b64 = val.get('base64', '')
+            return base64.b64decode(b64) if b64 else b''
+        return val.get('value', val)
+
     def __init__(self, columns, values):
         self._columns = columns
-        self._values = values
+        self._values = [self._unwrap(v) for v in values]
 
     def __getitem__(self, key):
         if isinstance(key, int):
             return self._values[key]
         if isinstance(key, str):
             return self._values[self._columns.index(key)]
+        if isinstance(key, slice):
+            return self._values[key]
         raise TypeError(f"Unsupported key type: {type(key)}")
 
     def keys(self):
