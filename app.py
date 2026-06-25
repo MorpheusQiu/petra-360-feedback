@@ -214,10 +214,13 @@ os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else DB_DIR, ex
 
 # Track DB creation to detect cold-start re-seeding
 _RECOVERY_INFO = None
+_db_initialized = False
+_seed_verified = False
 
 # ========== Database ==========
 
 def get_db():
+    global _seed_verified
     if 'db' not in g:
         if USE_TURSO:
             g.db = TursoConnection(TURSO_HTTP_URL, TURSO_TOKEN)
@@ -228,6 +231,15 @@ def get_db():
             g.db.row_factory = sqlite3.Row
             g.db.execute("PRAGMA journal_mode=WAL")
         _ensure_db()
+        # Post-init safety net: verify users actually got seeded.
+        # On Turso, race conditions or pipeline issues can cause seed_users
+        # INSERTs to not persist despite init_db() completing successfully.
+        if not _seed_verified:
+            count = g.db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            if count == 0:
+                print("[SeedVerify] Users table is empty — forcing re-seed...")
+                seed_users(g.db)
+            _seed_verified = True
     return g.db
 
 @app.teardown_appcontext
@@ -636,7 +648,6 @@ def require_super_admin(f):
     return decorated
 
 # ========== Init ==========
-_db_initialized = False
 
 def _ensure_db():
     """Lazy init: create tables on first request, not at import time.
@@ -743,6 +754,29 @@ def debug_db_state():
         return jsonify({'ok': True, 'data': result})
     except Exception as e:
         import traceback
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+@app.route('/api/debug/force-seed', methods=['POST'])
+def debug_force_seed():
+    """Diagnostic: force re-seed all 29 users into the database.
+    Resets _seed_verified flag so subsequent get_db() calls also re-verify."""
+    global _seed_verified
+    try:
+        db = get_db()
+        # Clear existing users first (preserving settings, feedback data, admin_logs)
+        db.execute("DELETE FROM users")
+        seed_users(db)
+        _seed_verified = True  # Mark as verified after successful seed
+        # Verify
+        count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        return jsonify({
+            'ok': True,
+            'users_seeded': count,
+            'message': f'Successfully seeded {count} users.'
+        })
+    except Exception as e:
+        import traceback
+        _seed_verified = False  # Allow retry
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/api/login', methods=['POST'])
