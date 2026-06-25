@@ -773,8 +773,8 @@ def debug_db_state():
         row = db.execute("SELECT value FROM settings WHERE key='pw_migrated'").fetchone()
         result['pw_migrated'] = str(row['value']) if row else 'NOT SET'
 
-        # 4. First 5 users (password prefix safely converted to string)
-        rows = db.execute("SELECT en_name, ch_name, status, role FROM users LIMIT 5").fetchall()
+        # 4. First 5 users (include password_hash for diagnosis)
+        rows = db.execute("SELECT id, en_name, ch_name, status, role, password_hash FROM users LIMIT 5").fetchall()
         sample = []
         for r in rows:
             d = dict(r)
