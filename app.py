@@ -74,7 +74,10 @@ class TursoRow:
 
 
 class TursoCursor:
-    """Cursor wrapper compatible with sqlite3.Cursor. Accepts Turso HTTP API result dict."""
+    """Cursor wrapper compatible with sqlite3.Cursor. Accepts Turso HTTP API result dict.
+    Turso pipeline response format:
+    {"type":"ok","response":{"type":"execute","result":{"cols":[...],"rows":[...],"last_insert_rowid":"..."}}}
+    """
     def __init__(self, result_data=None):
         if result_data is None:
             self.columns = []
@@ -82,12 +85,14 @@ class TursoCursor:
             self._pos = 0
             self.lastrowid = 0
             return
-        cols = result_data.get('cols', [])
+        # Unwrap: result_data["response"]["result"] contains actual cols/rows/last_insert_rowid
+        inner = (result_data.get('response') or {}).get('result') or {}
+        cols = inner.get('cols', [])
         self.columns = [c['name'] for c in cols] if cols else []
-        row_data = result_data.get('rows', [])
+        row_data = inner.get('rows', [])
         self.rows = [TursoRow(self.columns, list(row)) for row in row_data]
         self._pos = 0
-        rid = result_data.get('last_insert_rowid')
+        rid = inner.get('last_insert_rowid')
         if rid is not None:
             try:
                 self.lastrowid = int(rid)
@@ -172,7 +177,14 @@ class TursoConnection:
             {"type": "close"},
         ])
         results = resp.get('results', [])
-        return TursoCursor(results[0] if results else None)
+        if not results:
+            raise Exception("Turso API returned empty results")
+        # Check for error result
+        first = results[0]
+        if first.get('type') == 'error':
+            err = first.get('error', {})
+            raise Exception(f"Turso SQL error: {err.get('message', str(err))}")
+        return TursoCursor(first)
 
     def executescript(self, sql):
         """Execute multiple SQL statements in a single pipeline (for init_db)."""
@@ -181,7 +193,13 @@ class TursoConnection:
             return
         pipeline = [{"type": "execute", "stmt": {"sql": s}} for s in statements]
         pipeline.append({"type": "close"})
-        self._api_call(pipeline)
+        resp = self._api_call(pipeline)
+        # Check each result for errors
+        for i, result in enumerate(resp.get('results', [])):
+            if result.get('type') == 'error':
+                err = result.get('error', {})
+                stmt_preview = statements[i][:100] if i < len(statements) else 'close'
+                raise Exception(f"Turso SQL error at #{i} ({stmt_preview}): {err.get('message', str(err))}")
 
     def commit(self):
         pass  # Turso HTTP API: each /v2/pipeline auto-commits
