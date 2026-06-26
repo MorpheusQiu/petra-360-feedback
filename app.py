@@ -447,12 +447,12 @@ def init_db():
     if count == 0:
         seed_users(db)
 
-    # Migration: update passwords to per-user Excel defaults (2026-06-22)
-    # Runs AFTER seed_users so it covers both scenarios:
-    #  (A) fresh DB: seed_users just set per-user passwords via default_passwords dict
-    #  (B) existing DB: updates old petra2026 passwords → new per-user passwords
-    pw_migrated = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
-    if not pw_migrated:
+# Migration v2: auto-update passwords whenever PW_REVISION bumps (2026-06-26)
+    pw_revision_setting = db.execute("SELECT value FROM settings WHERE key='pw_revision'").fetchone()
+    current_rev = int(str(pw_revision_setting['value'])) if pw_revision_setting and pw_revision_setting['value'] else 0
+    if current_rev < PW_REVISION:
+        # Delete stale users (e.g. Katrina if removed from Excel)
+        db.execute("DELETE FROM users WHERE en_name='Katrina'")
         _updated = 0
         for _name, _pw in PER_USER_PASSWORDS.items():
             db.execute(
@@ -460,9 +460,12 @@ def init_db():
                 (generate_password_hash(_pw), _name)
             )
             _updated += 1
-        db.execute("INSERT OR IGNORE INTO settings VALUES ('pw_migrated_to_excel', '1')")
+        db.execute(
+            "INSERT OR REPLACE INTO settings VALUES ('pw_revision', ?)",
+            (str(PW_REVISION),)
+        )
         db.commit()
-        print(f"[Migration] Updated {_updated} users to per-user default passwords (Excel).")
+        print(f"[Migration v2] Updated {_updated} users to per-user passwords (revision {PW_REVISION}).")
 
     # Seed settings
     db.execute("INSERT OR IGNORE INTO settings VALUES ('submission_open', '1')")
@@ -484,6 +487,10 @@ PER_USER_PASSWORDS = {
     'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
     'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
 }
+
+# Bump this number after changing PER_USER_PASSWORDS or removing users.
+# init_db() auto-migrates passwords when the stored revision is lower.
+PW_REVISION = 1
 
 def seed_users(db):
     """Initialize database with default employees. Each gets a unique random password."""
@@ -810,6 +817,7 @@ def debug_force_seed():
         db.execute("DELETE FROM sub_admins")
         db.execute("DELETE FROM users")
         db.execute("DELETE FROM settings WHERE key='pw_migrated_to_excel'")
+        db.execute("DELETE FROM settings WHERE key='pw_revision'")
         seed_users(db)
         _seed_verified = True
         row = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
