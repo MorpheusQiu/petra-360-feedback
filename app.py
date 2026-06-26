@@ -456,7 +456,6 @@ def init_db():
         _default_passwords = {
             'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
             'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-            'Katrina': 'petra2026641',
             'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
             'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
             'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
@@ -495,7 +494,6 @@ def seed_users(db):
         (4, 'Maira', 'Maira Mumtaz', 'Financial Management', '财务经理', 'Ali', 'employee', ''),
         (5, 'Carey', '郭梦静', 'Financial Management', '财务主管', 'Rita', 'employee', ''),
         (6, 'Morpheus', '邱燕琳', 'People Management', '人力资源经理', 'Mursal', 'admin', 'super_admin'),
-        (7, 'Katrina', '杨雪', 'Supply Chain Management', '产品项目经理', 'Ali', 'employee', ''),
         (8, 'Chase', '黎俊杰', 'Supply Chain Management', '采购经理', 'Ali', 'employee', ''),
         (9, 'Holly', '黄雅欣', 'Supply Chain Management', '产品开发专员', 'Rita', 'employee', ''),
         (10, 'Ian', '王寒', 'Supply Chain Management', '采购跟单专员', 'Rita', 'employee', ''),
@@ -520,11 +518,9 @@ def seed_users(db):
         (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', ''),
     ]
     # Per-user default passwords (from PB360员工信息表.xlsx, 2026-06-22)
-    # Katrina not in Excel; password preset below
     default_passwords = {
         'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
         'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-        'Katrina': 'petra2026641',
         'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
         'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
         'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
@@ -810,7 +806,7 @@ def debug_db_state():
 
 @app.route('/api/debug/force-seed', methods=['GET','POST'])
 def debug_force_seed():
-    """Force re-seed all 29 users. Clears feedback data first to avoid FK constraint."""
+    """Force re-seed all 28 users. Clears feedback data first to avoid FK constraint."""
     global _seed_verified
     try:
         db = get_db()
@@ -925,7 +921,6 @@ def reset_all_passwords():
     default_passwords = {
         'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
         'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-        'Katrina': 'petra2026641',
         'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
         'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
         'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
@@ -939,7 +934,7 @@ def reset_all_passwords():
     users = db.execute("SELECT id, en_name FROM users WHERE status='active'").fetchall()
     updated = 0
     for u in users:
-        pw = env_pw or default_passwords.get(u['en_name'], 'petra2026')
+        pw = env_pw or default_passwords.get(u['en_name'], secrets.token_urlsafe(10))
         db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(pw), u['id']))
         updated += 1
     
@@ -1510,7 +1505,6 @@ def admin_reset_password(uid):
         default_passwords = {
             'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
             'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-            'Katrina': 'petra2026641',
             'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
             'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
             'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
@@ -1520,7 +1514,7 @@ def admin_reset_password(uid):
             'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
             'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
         }
-        new_pw = default_passwords.get(target['en_name'], 'petra2026')
+        new_pw = default_passwords.get(target['en_name'], secrets.token_urlsafe(10))
     if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
         new_pw = new_pw + 'Aa1'  # ensure compliance
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), uid))
