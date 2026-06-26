@@ -537,7 +537,7 @@ def seed_users(db):
     env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     recovery_seeds = {}
     for e in employees:
-        pw = env_pw or default_passwords.get(e[1], secrets.token_urlsafe(10))
+        pw = default_passwords.get(e[1]) or env_pw or secrets.token_urlsafe(10)
         recovery_seeds[e[1]] = pw
         db.execute(
             "INSERT INTO users (id, en_name, ch_name, password_hash, department, position, manager_en, role, admin_level) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -822,6 +822,7 @@ def debug_force_seed():
         db.execute("DELETE FROM admin_logs")
         db.execute("DELETE FROM sub_admins")
         db.execute("DELETE FROM users")
+        db.execute("DELETE FROM settings WHERE key='pw_migrated_to_excel'")
         seed_users(db)
         _seed_verified = True
         row = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
