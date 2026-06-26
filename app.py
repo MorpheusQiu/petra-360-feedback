@@ -453,20 +453,8 @@ def init_db():
     #  (B) existing DB: updates old petra2026 passwords → new per-user passwords
     pw_migrated = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
     if not pw_migrated:
-        _default_passwords = {
-            'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
-            'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-            'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
-            'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
-            'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
-            'Frank': 'petra2026348', 'Jim': 'petra2026100',
-            'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
-            'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
-            'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
-            'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
-        }
         _updated = 0
-        for _name, _pw in _default_passwords.items():
+        for _name, _pw in PER_USER_PASSWORDS.items():
             db.execute(
                 "UPDATE users SET password_hash=? WHERE en_name=? AND status='active'",
                 (generate_password_hash(_pw), _name)
@@ -482,6 +470,20 @@ def init_db():
     if not USE_TURSO:
         db.commit()
         db.close()
+
+# Single source of truth — per-user default passwords (from PB360员工信息表.xlsx, 2026-06-22)
+PER_USER_PASSWORDS = {
+    'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
+    'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
+    'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
+    'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
+    'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
+    'Frank': 'petra2026348', 'Jim': 'petra2026100',
+    'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
+    'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
+    'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
+    'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
+}
 
 def seed_users(db):
     """Initialize database with default employees. Each gets a unique random password."""
@@ -518,18 +520,7 @@ def seed_users(db):
         (29, 'Molly', '张莉', 'Petra Jewelry', '业务经理', 'Rita', 'employee', ''),
     ]
     # Per-user default passwords (from PB360员工信息表.xlsx, 2026-06-22)
-    default_passwords = {
-        'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
-        'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-        'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
-        'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
-        'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
-        'Frank': 'petra2026348', 'Jim': 'petra2026100',
-        'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
-        'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
-        'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
-        'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
-    }
+    default_passwords = PER_USER_PASSWORDS
     env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     recovery_seeds = {}
     for e in employees:
@@ -766,8 +757,8 @@ def debug_db_state():
             result['morpheus'] = {'exists': False}
 
         # 3. Check settings
-        row = db.execute("SELECT value FROM settings WHERE key='pw_migrated'").fetchone()
-        result['pw_migrated'] = str(row['value']) if row else 'NOT SET'
+        row = db.execute("SELECT value FROM settings WHERE key='pw_migrated_to_excel'").fetchone()
+        result['pw_migrated_to_excel'] = str(row['value']) if row else 'NOT SET'
 
         # 4. First 5 users (include password_hash for diagnosis)
         rows = db.execute("SELECT id, en_name, ch_name, status, role, password_hash FROM users LIMIT 5").fetchall()
@@ -918,23 +909,11 @@ def get_me():
 def reset_all_passwords():
     """Reset all users to their per-user default passwords (from PB360 excel)"""
     db = get_db()
-    default_passwords = {
-        'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
-        'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-        'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
-        'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
-        'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
-        'Frank': 'petra2026348', 'Jim': 'petra2026100',
-        'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
-        'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
-        'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
-        'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
-    }
     env_pw = os.environ.get('INIT_DEFAULT_PASSWORD')
     users = db.execute("SELECT id, en_name FROM users WHERE status='active'").fetchall()
     updated = 0
     for u in users:
-        pw = env_pw or default_passwords.get(u['en_name'], secrets.token_urlsafe(10))
+        pw = env_pw or PER_USER_PASSWORDS.get(u['en_name'], secrets.token_urlsafe(10))
         db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(pw), u['id']))
         updated += 1
     
@@ -1502,19 +1481,7 @@ def admin_reset_password(uid):
     if not target:
         return jsonify({'error': 'User not found or disabled'}), 404
     if not new_pw:
-        default_passwords = {
-            'Mursal': 'petra2026406', 'Ali': 'petra2026373', 'Rita': 'petra2026212',
-            'Maira': 'petra2026444', 'Carey': 'petra2026108', 'Morpheus': 'petra2026386',
-            'Chase': 'petra2026383', 'Holly': 'petra2026449', 'Ian': 'petra2026194',
-            'Summer': 'petra2026197', 'Kylie': 'petra2026293', 'Vanessa': 'petra2026102',
-            'Linda': 'petra2026462', 'Jun': 'petra2026236', 'Ming': 'petra2026201',
-            'Frank': 'petra2026348', 'Jim': 'petra2026100',
-            'Suki': 'petra2026284', 'Sheikh': 'petra2026351', 'Neil': 'petra2026425',
-            'Chris': 'petra2026129', 'Jemmy': 'petra2026272', 'Jack': 'petra2026362',
-            'Catherine': 'petra2026180', 'Sophie': 'petra2026452',
-            'Jocelyn': 'petra2026281', 'Lola': 'petra2026168', 'Molly': 'petra2026462',
-        }
-        new_pw = default_passwords.get(target['en_name'], secrets.token_urlsafe(10))
+        new_pw = PER_USER_PASSWORDS.get(target['en_name'], secrets.token_urlsafe(10))
     if len(new_pw) < 8 or not re.search(r'[A-Za-z]', new_pw) or not re.search(r'[0-9]', new_pw):
         new_pw = new_pw + 'Aa1'  # ensure compliance
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_pw), uid))
