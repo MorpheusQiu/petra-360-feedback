@@ -791,7 +791,7 @@ def debug_db_state():
         # Recent dim2 submissions (for persistence verification)
         try:
             recent = db.execute(
-                "SELECT evaluator_id, evaluator_name, updated_at FROM dim2_upward ORDER BY updated_at DESC LIMIT 5"
+                "SELECT id, evaluator_id, manager_name, submitted, updated_at FROM dim2_upward ORDER BY updated_at DESC LIMIT 5"
             ).fetchall()
             result['recent_dim2'] = [dict(r) for r in recent]
         except Exception:
